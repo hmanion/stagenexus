@@ -1505,6 +1505,15 @@ def index() -> str:
       gap: 8px;
       flex-wrap: nowrap;
     }
+    .list-right {
+      display: grid;
+      grid-template-columns: auto minmax(140px, 1fr) auto;
+      align-items: center;
+      justify-self: end;
+      width: 100%;
+      max-width: 320px;
+      gap: 8px;
+    }
     .list-left .module-icon {
       width: 22px;
       height: 22px;
@@ -1565,9 +1574,24 @@ def index() -> str:
       font-size: 12px;
       color: var(--ink-2);
       white-space: nowrap;
+      text-align: right;
+      justify-self: end;
+    }
+    .list-right-avatars {
+      min-width: 0;
+      justify-self: start;
+      overflow: hidden;
+    }
+    .list-right-id {
+      min-width: 0;
+      overflow: hidden;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .list-right-options {
+      justify-self: end;
     }
     .list-options {
-      margin-left: auto;
       position: relative;
       display: inline-flex;
       align-items: center;
@@ -1614,6 +1638,10 @@ def index() -> str:
       }
       .list-left, .list-middle, .list-right {
         width: 100%;
+      }
+      .list-right {
+        max-width: none;
+        justify-self: stretch;
       }
       .list-options {
         margin-left: 0;
@@ -3738,10 +3766,17 @@ __NAV_CONTROLS__
         ${listSlotEnabled(moduleType, 'health') && health ? healthChip(health) : ''}
         ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, false, ownerName || null)}</span>` : ''}
       `;
+      const avatarsHtml = listSlotEnabled(moduleType, 'avatars')
+        ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null)).join('')}</span>`
+        : '';
+      const contextIdHtml = (listSlotEnabled(moduleType, 'context_id') && contextId)
+        ? `<span class='list-context-id'>${escapeHtml(contextId)}</span>`
+        : '';
+      const optionsHtml = listSlotEnabled(moduleType, 'options') ? listOptionsMenuHtml(row) : '';
       const right = `
-        ${listSlotEnabled(moduleType, 'avatars') ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null)).join('')}</span>` : ''}
-        ${listSlotEnabled(moduleType, 'context_id') && contextId ? `<span class='list-context-id'>${escapeHtml(contextId)}</span>` : ''}
-        ${listSlotEnabled(moduleType, 'options') ? listOptionsMenuHtml(row) : ''}
+        <div class='list-right-avatars'>${avatarsHtml}</div>
+        <div class='list-right-id'>${contextIdHtml}</div>
+        <div class='list-right-options'>${optionsHtml}</div>
       `;
       const currentRow = `
         <div class='list-module-row depth-${Math.min(Math.max(Number(depth || 0), 0), 3)}'
