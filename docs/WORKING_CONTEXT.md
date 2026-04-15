@@ -1,5 +1,4 @@
 # Working Context (Ops App)
-
 Purpose: keep a compact, up-to-date decision log so implementation stays consistent and we reduce repeated context in chat.
 
 ## Core model
@@ -18,7 +17,7 @@ Purpose: keep a compact, up-to-date decision log so implementation stays consist
 - Global status options:
   - Not started, In Progress, On Hold, Blocked: Client, Blocked: Internal, Blocked: Dependency, Done, Cancelled.
 - Global health options:
-  - Not started, On Track, At Risk, Off Track.
+  - Not due, On Track, At Risk, Off Track.
 - Campaign health guardrail:
   - If any stage is Off Track, campaign cannot be On Track.
 

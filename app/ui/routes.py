@@ -18,6 +18,7 @@ def _nav_controls_html() -> str:
         <button data-screen='home' onclick="navigateScreen('home')">Home</button>
         <button data-screen='my-work' onclick="navigateScreen('my-work')">My Work</button>
         <button data-screen='deals' onclick="navigateScreen('deals')">Scopes</button>
+        <button data-screen='people' onclick="navigateScreen('people')">People</button>
         <button data-screen='campaigns' onclick="navigateScreen('campaigns')">Campaigns</button>
         <button data-screen='gantt' onclick="navigateScreen('gantt')">Gantt</button>
         <button data-screen='reviews' onclick="navigateScreen('reviews')">Reviews</button>
@@ -25,7 +26,10 @@ def _nav_controls_html() -> str:
         <button data-screen='capacity' onclick="navigateScreen('capacity')">Capacity</button>
         <button data-screen='admin' onclick="navigateScreen('admin')">Admin</button>
       </div>
-      <select id='roleMode' class='nav-user-select' onchange='refreshRoleMode()'></select>
+      <div class='nav-controls-right'>
+        <button type='button' class='ghost nav-refresh-btn' onclick='refreshAll()'>Refresh</button>
+        <select id='roleMode' class='nav-user-select' onchange='refreshRoleMode()'></select>
+      </div>
     </div>
 """
 
@@ -35,6 +39,7 @@ def _nav_controls_html() -> str:
 @router.get("/my-work", response_class=HTMLResponse)
 @router.get("/deals", response_class=HTMLResponse)
 @router.get("/scopes", response_class=HTMLResponse)
+@router.get("/people", response_class=HTMLResponse)
 @router.get("/campaigns", response_class=HTMLResponse)
 @router.get("/gantt", response_class=HTMLResponse)
 @router.get("/reviews", response_class=HTMLResponse)
@@ -206,9 +211,13 @@ def index() -> str:
     header .sub { color: rgba(255, 255, 255, 0.6); }
     .muted { color: var(--ink-3); font-size: 12px; }
     .app-shell {
-      max-width: 1320px;
+      max-width: 1600px;
       margin: var(--space-4) auto;
       padding: 0 20px 110px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      min-width: 0;
     }
     .demo-rail {
       position: fixed;
@@ -257,6 +266,7 @@ def index() -> str:
       min-width: 0;
       max-width: 1200px;
       margin: 0 auto;
+      flex: 1 1 auto;
     }
     body.screen-capacity .app-shell {
       max-width: 100%;
@@ -283,6 +293,114 @@ def index() -> str:
       border-radius: 0;
       padding: 0;
       box-shadow: none;
+    }
+    .object-panel-host {
+      width: min(380px, 32vw);
+      min-width: 320px;
+      height: calc(100vh - var(--header-offset) - 18px);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      box-shadow: 0 12px 30px rgba(13, 13, 15, 0.14);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+      position: fixed;
+      top: calc(var(--header-offset) + 8px);
+      right: 10px;
+      z-index: 24;
+    }
+    .object-panel-host.open {
+      display: flex;
+    }
+    .object-panel-header {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 10px 12px;
+      background: linear-gradient(180deg, var(--screen-accent-soft) 0, var(--screen-accent-soft) 4px, #ffffff 4px, #ffffff 100%);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 8px;
+    }
+    .object-panel-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .object-panel-title-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .object-panel-title {
+      font-family: 'Barlow Condensed', 'Epilogue', sans-serif;
+      font-weight: 800;
+      font-size: 1.2rem;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .object-panel-subtitle {
+      font-size: 12px;
+      color: var(--ink-2);
+      font-family: 'DM Mono', ui-monospace, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .object-panel-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+    .object-panel-body .module-popover {
+      box-shadow: none;
+      border-color: var(--line);
+    }
+    .object-panel-body .module-popover > .module-head,
+    .object-panel-body .module-popover > .module-footer,
+    .object-panel-body .module-popover .module-popover-actions {
+      display: none !important;
+    }
+    .object-panel-body .module-popover details.ops-accordion {
+      display: none !important;
+    }
+    .object-panel-footer {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      border-top: 1px solid var(--line);
+      background: #fff;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .object-panel-footer-left,
+    .object-panel-footer-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .object-panel-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(13, 13, 15, 0.28);
+      z-index: 23;
+      display: none;
+    }
+    .object-panel-backdrop.open {
+      display: block;
     }
     .grid {
       display: grid;
@@ -356,8 +474,23 @@ def index() -> str:
       color: #fff;
       border-color: transparent;
     }
-    .nav-user-select {
+    .nav-controls-right {
       margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .nav-refresh-btn {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.22);
+    }
+    .nav-refresh-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+    .nav-user-select {
       min-width: 180px;
       max-width: 260px;
       background: rgba(255, 255, 255, 0.12);
@@ -884,29 +1017,35 @@ def index() -> str:
       align-items: center;
       gap: 6px;
     }
-    .module-options {
+    .module-options,
+    .list-options {
       position: relative;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
     }
-    .module-options-menu {
+    .module-options-menu,
+    .list-options-menu {
       position: absolute;
       right: 0;
       top: calc(100% + 6px);
-      min-width: 130px;
+      min-width: 150px;
       border: 0.5px solid var(--line-strong);
       background: var(--surface);
       border-radius: 8px;
       box-shadow: var(--shadow-2);
       padding: 4px;
       display: none;
-      z-index: 30;
+      z-index: 80;
+      overflow: visible;
     }
-    .module-options.open .module-options-menu {
+    .module-options.open .module-options-menu,
+    .list-options.open .list-options-menu {
       display: grid;
       gap: 2px;
     }
-    .module-options-item {
+    .module-options-item,
+    .list-options-item {
       width: 100%;
       text-align: left;
       border: 0;
@@ -917,13 +1056,17 @@ def index() -> str:
       line-height: 1.2;
       padding: 6px 8px;
       cursor: pointer;
+      min-height: 28px;
     }
     .module-options-item:hover,
-    .module-options-item:focus-visible {
+    .module-options-item:focus-visible,
+    .list-options-item:hover,
+    .list-options-item:focus-visible {
       background: var(--surface-2);
       outline: none;
     }
-    .module-options-item.danger {
+    .module-options-item.danger,
+    .list-options-item.danger {
       color: var(--rust);
     }
     .module-card.module-target-highlight {
@@ -1487,7 +1630,7 @@ def index() -> str:
     }
     .list-module-row {
       display: grid;
-      grid-template-columns: minmax(320px, 1.6fr) minmax(260px, 1fr) minmax(220px, 0.9fr);
+      grid-template-columns: minmax(320px, 1.45fr) minmax(360px, 1.2fr) minmax(230px, 0.9fr);
       align-items: center;
       gap: 10px;
       padding: 10px 12px;
@@ -1504,6 +1647,10 @@ def index() -> str:
       align-items: center;
       gap: 8px;
       flex-wrap: nowrap;
+    }
+    .list-middle .pill-dropdown,
+    .list-middle .tag {
+      flex: 0 0 auto;
     }
     .list-right {
       display: grid;
@@ -1591,41 +1738,7 @@ def index() -> str:
     .list-right-options {
       justify-self: end;
     }
-    .list-options {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .list-options-menu {
-      position: absolute;
-      top: calc(100% + 6px);
-      right: 0;
-      min-width: 140px;
-      border: 0.5px solid var(--line);
-      border-radius: 10px;
-      background: var(--surface-1);
-      box-shadow: var(--shadow-2);
-      display: none;
-      z-index: 40;
-      overflow: hidden;
-    }
-    .list-options.open .list-options-menu { display: block; }
-    .list-options-item {
-      width: 100%;
-      border: 0;
-      border-top: 0.5px solid var(--line);
-      background: transparent;
-      text-align: left;
-      padding: 8px 10px;
-      font-size: 13px;
-      cursor: pointer;
-      color: var(--ink);
-    }
     .list-options-item:first-child { border-top: 0; }
-    .list-options-item:hover,
-    .list-options-item:focus-visible { background: var(--surface-2); outline: none; }
-    .list-options-item.danger { color: var(--rust); }
     .list-row-progress {
       min-width: 120px;
       max-width: 220px;
@@ -2212,6 +2325,10 @@ def index() -> str:
       border: 0;
       background: var(--surface-3);
       color: var(--ink-2);
+      white-space: nowrap;
+      word-break: keep-all;
+      line-break: strict;
+      flex-wrap: nowrap;
     }
     .tag::before {
       content: '';
@@ -2355,6 +2472,9 @@ def index() -> str:
     }
     .hidden { display: none !important; }
     @media (max-width: 980px) {
+      .app-shell {
+        display: block;
+      }
       .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
       .row { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: 1fr; }
@@ -2375,6 +2495,21 @@ def index() -> str:
         padding: 8px;
       }
       .toast-wrap { bottom: 120px; }
+      .object-panel-backdrop.open {
+        display: block;
+      }
+      .object-panel-host {
+        position: fixed;
+        top: auto;
+        left: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: auto;
+        min-width: 0;
+        max-height: min(78vh, calc(100vh - 68px));
+        z-index: 24;
+        border-radius: 12px;
+      }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -2433,20 +2568,9 @@ __NAV_CONTROLS__
     <section class='card' id='sectionControls'>
       <div class='section-head'>
         <h3>Screen Options</h3>
-        <span class='muted'>Quick search and refresh</span>
+        <span class='muted'>Quick filters</span>
       </div>
       <div class='toolbar'>
-        <label class='sub' for='qDeals'>Scopes</label>
-        <select id='qDeals' aria-label='Filter scopes' onchange='refreshAll()'>
-          <option value='all'>All scopes</option>
-          <option value='draft'>Draft</option>
-          <option value='submitted'>Submitted</option>
-          <option value='ops_review'>Ops review</option>
-          <option value='ops_approved'>Ops approved</option>
-          <option value='readiness_failed'>Readiness failed</option>
-          <option value='readiness_passed'>Readiness passed</option>
-          <option value='campaigns_generated'>Campaigns generated</option>
-        </select>
         <label class='sub' for='qCampaigns'>Campaigns</label>
         <select id='qCampaigns' aria-label='Filter campaigns' onchange='refreshAll()'>
           <option value='all'>All campaigns</option>
@@ -2459,19 +2583,14 @@ __NAV_CONTROLS__
           <option value='done'>Done</option>
           <option value='cancelled'>Cancelled</option>
         </select>
-        <label class='sub' for='qDeliverables'>Deliverables</label>
-        <select id='qDeliverables' aria-label='Filter deliverables' onchange='refreshAll()'>
-          <option value='all'>All deliverables</option>
-          <option value='not_started'>Not started</option>
-          <option value='in_progress'>In Progress</option>
-          <option value='on_hold'>On Hold</option>
-          <option value='blocked_client'>Blocked: Client</option>
-          <option value='blocked_internal'>Blocked: Internal</option>
-          <option value='blocked_dependency'>Blocked: Dependency</option>
-          <option value='done'>Done</option>
-          <option value='cancelled'>Cancelled</option>
+        <label class='sub' for='qProducts'>Products</label>
+        <select id='qProducts' aria-label='Filter products' onchange='refreshAll()'>
+          <option value='all'>All products</option>
+          <option value='demand'>Demand</option>
+          <option value='amplify'>Amplify</option>
+          <option value='response'>Response</option>
+          <option value='display_only'>Display</option>
         </select>
-        <button class='ghost' onclick='refreshAll()'>Refresh</button>
       </div>
     </section>
 
@@ -2561,6 +2680,38 @@ __NAV_CONTROLS__
         <span id='dealsCount' class='muted'></span>
       </div>
       <div id='dealsBody' class='queue-list'></div>
+    </section>
+
+    <section class='card' id='sectionPeople'>
+      <div class='section-head'>
+        <h3>People</h3>
+        <span id='peopleCount' class='muted'></span>
+      </div>
+      <div class='toolbar'>
+        <label class='sub' for='qPeopleTeam'>Team</label>
+        <select id='qPeopleTeam' aria-label='Filter people by team' onchange='renderPeople()'>
+          <option value='all'>All teams</option>
+          <option value='sales'>Sales</option>
+          <option value='editorial'>Editorial</option>
+          <option value='marketing'>Marketing</option>
+          <option value='client_services'>Client Services</option>
+        </select>
+        <label class='sub' for='qPeopleSeniority'>Seniority</label>
+        <select id='qPeopleSeniority' aria-label='Filter people by seniority' onchange='renderPeople()'>
+          <option value='all'>All seniority</option>
+          <option value='standard'>Standard</option>
+          <option value='manager'>Manager</option>
+          <option value='leadership'>Leadership</option>
+        </select>
+        <label class='sub' for='qPeopleAppRole'>App Role</label>
+        <select id='qPeopleAppRole' aria-label='Filter people by app role' onchange='renderPeople()'>
+          <option value='all'>All app roles</option>
+          <option value='user'>User</option>
+          <option value='admin'>Admin</option>
+          <option value='superadmin'>Superadmin</option>
+        </select>
+      </div>
+      <div id='peopleBody' class='queue-list' style='margin-top:8px;'></div>
     </section>
 
     <section class='card' id='sectionCampaigns'>
@@ -2927,7 +3078,12 @@ __NAV_CONTROLS__
     </main>
   </div>
   <div class='toast-wrap' id='toastWrap' aria-live='polite' aria-atomic='true'></div>
-  <div id='itemPopover' class='cap-popover hidden'></div>
+  <div id='objectPanelBackdrop' class='object-panel-backdrop hidden' onclick='closeObjectPanel()'></div>
+  <aside id='objectPanel' class='object-panel-host' aria-live='polite' aria-label='Object details panel'>
+    <div id='objectPanelHeader' class='object-panel-header'></div>
+    <div id='objectPanelBody' class='object-panel-body'></div>
+    <div id='objectPanelFooter' class='object-panel-footer'></div>
+  </aside>
 
   <script>
     const UI_FLAGS = __UI_FLAGS__;
@@ -2954,6 +3110,7 @@ __NAV_CONTROLS__
     const ganttInitialSnapDone = new Set();
     let currentWorkspaceTab = 'overview';
     let workspaceCache = null;
+    let peopleSortDirection = 'asc';
     let capacityView = 'month';
     let capacityWeeks = 4;
     let capacityGranularity = 'week';
@@ -2964,6 +3121,10 @@ __NAV_CONTROLS__
     let capacityColumns = [];
     let capacityDisplayCells = {};
     let capacityQuarterWeekSlots = {};
+    let panelOpen = false;
+    let panelObjectType = '';
+    let panelObjectId = '';
+    let panelPayload = null;
     let campaignFilterBeforeForceReveal = null;
     let opsDefaultsCache = null;
     let demoRailMinimised = false;
@@ -3083,7 +3244,7 @@ __NAV_CONTROLS__
     ];
     let PROGRESS_SEGMENT_ORDER = [...DEFAULT_PROGRESS_SEGMENT_ORDER];
     const GLOBAL_HEALTH_LABELS = {
-      not_started: 'Not started',
+      not_started: 'Not due',
       on_track: 'On Track',
       at_risk: 'At Risk',
       off_track: 'Off Track',
@@ -3322,6 +3483,10 @@ __NAV_CONTROLS__
     let LIST_MODULE_CONFIG = JSON.parse(JSON.stringify(DEFAULT_LIST_MODULE_CONFIG));
     let LIST_MODULE_BINDINGS = JSON.parse(JSON.stringify(DEFAULT_LIST_MODULE_BINDINGS));
     const LIST_EXPANDED_ROW_KEYS = new Set();
+    const LIST_ROWS_CACHE = {
+      campaigns: [],
+      deals: [],
+    };
     const MODULE_EDIT_STATE = {};
 
     function normalizeCardModuleConfig(raw) {
@@ -3462,7 +3627,7 @@ __NAV_CONTROLS__
 
     function healthChip(value) {
       const v = String(value || 'not_started').toLowerCase();
-      const label = GLOBAL_HEALTH_LABELS[v] || 'Not started';
+      const label = GLOBAL_HEALTH_LABELS[v] || 'Not due';
       if (v === 'off_track') return `<span class='tag risk'>${label}</span>`;
       if (v === 'at_risk') return `<span class='tag warn'>${label}</span>`;
       if (v === 'on_track') return `<span class='tag ok'>${label}</span>`;
@@ -3563,16 +3728,13 @@ __NAV_CONTROLS__
     }
 
     function moduleOptionsButton() {
-      return `<button type='button' class='module-option-btn' data-module-options-trigger='1' aria-label='Module options' title='Options'>
+      return `<button type='button' class='module-option-btn' data-module-options-trigger='1' aria-haspopup='menu' aria-expanded='false' aria-label='Module options' title='Options'>
         <svg viewBox='0 0 16 16' aria-hidden='true'><circle cx='4' cy='8' r='1.2' fill='currentColor'/><circle cx='8' cy='8' r='1.2' fill='currentColor'/><circle cx='12' cy='8' r='1.2' fill='currentColor'/></svg>
       </button>`;
     }
 
     function moduleHeadRight(moduleType, objectId = '', opts = {}) {
       const optionsButton = moduleOptionsButton();
-      if (opts?.popover) {
-        return `<div class='module-head-controls'>${optionsButton}<button type='button' class='ghost module-close-btn' onclick='closeItemPopover()'>Close</button></div>`;
-      }
       const canMenuEdit = canEditFromModuleMenu(moduleType);
       const editing = canMenuEdit && isModuleEditing(moduleType, objectId);
       const canDeleteCampaign = String(moduleType || '').toLowerCase() === 'campaign' && canUseControl('delete_campaign', currentRole);
@@ -3592,7 +3754,9 @@ __NAV_CONTROLS__
       const editMenu = canMenuEdit
         ? `<div class='module-options-menu'>${menuActions}</div>`
         : `<div class='module-options-menu'>${menuActions || "<button type='button' class='module-options-item' disabled>No actions</button>"}</div>`;
-      return `<div class='module-head-controls'>${moduleTypePill(moduleType)}<div class='module-options' data-module-options='1'>${optionsButton}${editMenu}</div></div>`;
+      const closeBtn = (opts?.popover || opts?.panel) ? `<button type='button' class='ghost module-close-btn' onclick='closeObjectPanel()'>Close</button>` : '';
+      const typePill = (opts?.popover || opts?.panel) ? '' : moduleTypePill(moduleType);
+      return `<div class='module-head-controls'>${typePill}<div class='module-options' data-module-options='1' data-options-wrap='1'>${optionsButton}${editMenu}</div>${closeBtn}</div>`;
     }
 
     async function toggleModuleEditFromMenu(moduleType, objectId) {
@@ -3604,6 +3768,17 @@ __NAV_CONTROLS__
       } else {
         await renderScreen();
       }
+      if (panelOpen && panelObjectType === String(moduleType || '').toLowerCase() && panelObjectId === String(objectId || '')) {
+        const campaignId = String(
+          panelPayload?.campaign?.id
+          || panelPayload?.stage?.campaign_id
+          || panelPayload?.deliverable?.campaign_id
+          || panelPayload?.step?.campaign_id
+          || ''
+        ).trim();
+        const refreshed = await fetchObjectPanelPayload(moduleType, objectId, campaignId);
+        if (refreshed) openObjectPanelByPayload(refreshed);
+      }
       requestAnimationFrame(() => applyModuleLayoutRules());
     }
 
@@ -3612,6 +3787,8 @@ __NAV_CONTROLS__
       for (const menu of menus) {
         if (exceptEl && (menu === exceptEl || menu.contains(exceptEl))) continue;
         menu.classList.remove('open');
+        const trigger = menu.querySelector('[data-module-options-trigger]');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
       }
     }
 
@@ -3645,8 +3822,18 @@ __NAV_CONTROLS__
       const act = String(action || '').toLowerCase();
       if (!act) return;
       if (act === 'open') {
-        const path = moduleCardOpenPath(type, objId, sourceEl?.closest?.('.module-card') || null);
-        if (path) window.location.href = path;
+        const campaignId = String(
+          sourceEl?.getAttribute?.('data-campaign-id')
+          || sourceEl?.closest?.('.module-card')?.getAttribute?.('data-campaign-id')
+          || ''
+        ).trim();
+        const payload = await fetchObjectPanelPayload(type, objId, campaignId);
+        if (payload) {
+          openObjectPanelByPayload(payload);
+        } else {
+          const path = moduleCardOpenPath(type, objId, sourceEl?.closest?.('.module-card') || null);
+          if (path) window.location.href = path;
+        }
         return;
       }
       if (act === 'edit') {
@@ -3732,7 +3919,7 @@ __NAV_CONTROLS__
         canDeleteDeliverable ? `<button type='button' class='list-options-item danger' data-list-menu-action='delete' data-module-type='deliverable' data-object-id='${objectId}' data-campaign-id='${campaignId}'>Delete Deliverable</button>` : '',
       ].filter(Boolean).join('');
       return `
-        <div class='list-options' data-list-options='1'>
+        <div class='list-options' data-list-options='1' data-options-wrap='1'>
           ${moduleOptionsButton()}
           <div class='list-options-menu'>${actions || "<button type='button' class='list-options-item' disabled>No actions</button>"}</div>
         </div>
@@ -3762,7 +3949,7 @@ __NAV_CONTROLS__
       `;
       const middle = `
         ${listSlotEnabled(moduleType, 'progress') ? listProgressHtml(row?.progress_statuses || []) : ''}
-        ${listSlotEnabled(moduleType, 'status') && status ? statusChip(status) : ''}
+        ${listSlotEnabled(moduleType, 'status') && status ? listStatusControl(row, moduleType, status) : ''}
         ${listSlotEnabled(moduleType, 'health') && health ? healthChip(health) : ''}
         ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, false, ownerName || null)}</span>` : ''}
       `;
@@ -3784,7 +3971,8 @@ __NAV_CONTROLS__
              data-row-key='${rowKey}'
              data-module='${moduleType}'
              data-object-id='${escapeHtml(String(row?.id || ''))}'
-             data-campaign-id='${escapeHtml(String(row?.campaign_id || ''))}'>
+             data-campaign-id='${escapeHtml(String(row?.campaign_id || ''))}'
+             data-list-popover-payload='${popoverPayload}'>
           <div class='list-left'>${left}</div>
           <div class='list-middle'>${middle}</div>
           <div class='list-right'>${right}</div>
@@ -3913,6 +4101,93 @@ __NAV_CONTROLS__
       };
     }
 
+    async function fetchObjectPanelPayload(moduleType, objectId, campaignId = '') {
+      const type = String(moduleType || '').toLowerCase().trim();
+      const id = String(objectId || '').trim();
+      const cid = String(campaignId || '').trim();
+      if (!type || !id) return null;
+      try {
+        if (type === 'scope') {
+          const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
+          const data = await api(`/api/deals${actorQ}`);
+          const scope = (data?.items || []).find(d => String(d?.id || '') === id);
+          if (!scope) return null;
+          return {
+            module_type: 'scope',
+            scope,
+            open_label: 'Open',
+            open_deep_link: screenPath('deals'),
+            open_path: screenPath('deals'),
+          };
+        }
+        if (type === 'campaign') {
+          const ws = await api(`/api/campaigns/${encodeURIComponent(id)}/workspace`);
+          if (!ws?.campaign) return null;
+          return {
+            module_type: 'campaign',
+            campaign: {
+              ...(ws.campaign || {}),
+              deliverables: [],
+              work_steps: [],
+              deliverables_summary: ws?.campaign?.deliverables_summary || { total: 0, not_started: 0, in_progress: 0, done: 0 },
+              work_summary: ws?.campaign?.work_summary || { total: 0, not_started: 0, in_progress: 0, done: 0 },
+            },
+            open_label: 'Open',
+            open_deep_link: campaignsPathWithTarget({ targetType: 'campaign', targetId: id, campaignId: id }),
+            open_path: screenPath('campaigns'),
+          };
+        }
+        if (!cid) return null;
+        const ws = await api(`/api/campaigns/${encodeURIComponent(cid)}/workspace`);
+        if (!ws) return null;
+        if (type === 'stage') {
+          const stage = (ws?.stages || []).find(s => String(s?.id || '') === id);
+          if (!stage) return null;
+          return {
+            module_type: 'stage',
+            stage: {
+              ...(stage || {}),
+              campaign_id: cid,
+              campaign_name: ws?.campaign?.title || '',
+            },
+            campaign: ws?.campaign || { id: cid },
+            open_label: 'Open',
+            open_deep_link: campaignsPathWithTarget({ targetType: 'stage', targetId: id, campaignId: cid, expand: 'work' }),
+            open_path: screenPath('campaigns'),
+          };
+        }
+        if (type === 'deliverable') {
+          const deliverable = (ws?.deliverables?.items || []).find(d => String(d?.id || '') === id);
+          if (!deliverable) return null;
+          return {
+            module_type: 'deliverable',
+            deliverable,
+            campaign: ws?.campaign || { id: cid },
+            open_label: 'Open',
+            open_deep_link: campaignsPathWithTarget({ targetType: 'deliverable', targetId: id, campaignId: cid, expand: 'deliverables' }),
+            open_path: screenPath('campaigns'),
+          };
+        }
+        if (type === 'step') {
+          const step = (ws?.workflow_steps?.items || []).find(s => String(s?.id || '') === id);
+          if (!step) return null;
+          const linkedDeliverable = (ws?.deliverables?.items || []).find(d => String(d?.id || '') === String(step?.linked_deliverable_id || step?.deliverable_id || ''));
+          return {
+            module_type: 'step',
+            step,
+            deliverable: { title: linkedDeliverable?.title || step?.linked_deliverable_title || '-' },
+            campaign: ws?.campaign || { id: cid },
+            open_label: 'Open',
+            open_deep_link: campaignsPathWithTarget({ targetType: 'step', targetId: id, campaignId: cid, expand: 'work' }),
+            open_path: screenPath('campaigns'),
+          };
+        }
+        return null;
+      } catch (_) {
+        return null;
+      }
+    }
+
     function statusSelectOptions(selected) {
       const current = normalizeStatusValue(selected || 'not_started');
       return GLOBAL_STATUS_OPTIONS.map(opt => {
@@ -3926,6 +4201,14 @@ __NAV_CONTROLS__
       if (raw === 'planned') return 'not_started';
       if (raw === 'complete') return 'done';
       if (!raw) return 'not_started';
+      return 'in_progress';
+    }
+
+    function deliverableRawStatusFromGlobal(globalStatus) {
+      const s = normalizeStatusValue(globalStatus || 'not_started');
+      if (s === 'not_started') return 'planned';
+      if (s === 'done') return 'complete';
+      if (s === 'on_hold') return 'client_changes_requested';
       return 'in_progress';
     }
 
@@ -3952,6 +4235,7 @@ __NAV_CONTROLS__
       const currentLabel = options.currentLabel || statusLabel(current);
       const disabled = options.disabled ? 'disabled' : '';
       const list = Array.isArray(options.options) ? options.options : GLOBAL_STATUS_OPTIONS;
+      const currentRaw = String(options.currentRaw || '').trim();
       const items = list.map((opt, idx) => {
         const selected = normalizeStatusValue(opt.value) === current;
         const chip = statusChip(opt.label ? opt.value : opt.value);
@@ -3959,8 +4243,9 @@ __NAV_CONTROLS__
         const dataRaw = opt.raw ? ` data-raw='${String(opt.raw).replace(/'/g, '&#39;')}'` : '';
         return `<button type='button' class='pill-dropdown-option' role='option' data-dropdown-option='1' data-value='${opt.value}'${dataRaw}${selAttr} data-index='${idx}'>${chip}</button>`;
       }).join('');
+      const currentRawAttr = currentRaw ? ` data-current-raw='${currentRaw.replace(/'/g, '&#39;')}'` : '';
       return `
-        <div class='pill-dropdown ${options.className || ''}' data-dropdown-kind='status' data-dropdown-id='${id}' data-context='${options.context || ''}' data-object-type='${options.objectType || ''}' data-object-id='${options.objectId || ''}'>
+        <div class='pill-dropdown ${options.className || ''}' data-dropdown-kind='status' data-dropdown-id='${id}' data-context='${options.context || ''}' data-object-type='${options.objectType || ''}' data-object-id='${options.objectId || ''}' data-current-status='${current}'${currentRawAttr}>
           <button type='button' class='pill-dropdown-trigger' data-dropdown-trigger='1' aria-haspopup='listbox' aria-expanded='false' aria-label='${options.ariaLabel || currentLabel}' ${disabled}>
             ${statusChipWithChevron(current)}
           </button>
@@ -4052,6 +4337,7 @@ __NAV_CONTROLS__
     function setPillDropdownValue(dropdown, value) {
       if (!dropdown) return;
       const normalized = normalizeStatusValue(value);
+      dropdown.setAttribute('data-current-status', normalized);
       const trigger = dropdown.querySelector('[data-dropdown-trigger]');
       if (!trigger) return;
       trigger.innerHTML = statusChipWithChevron(normalized);
@@ -4406,6 +4692,7 @@ __NAV_CONTROLS__
         home: '/home',
         'my-work': '/my-work',
         deals: '/scopes',
+        people: '/people',
         campaigns: '/campaigns',
         gantt: '/gantt',
         reviews: '/reviews',
@@ -4482,6 +4769,7 @@ __NAV_CONTROLS__
     function screenFromPath(path) {
       if (path === '/my-work') return 'my-work';
       if (path === '/deals' || path === '/scopes') return 'deals';
+      if (path === '/people') return 'people';
       if (path === '/campaigns' || path.startsWith('/campaigns/')) return 'campaigns';
       if (path === '/gantt') return 'gantt';
       if (path === '/reviews') return 'reviews';
@@ -4499,7 +4787,7 @@ __NAV_CONTROLS__
 
     function canViewScreen(screen) {
       const flags = currentRoleFlags || {};
-      if (screen === 'home' || screen === 'my-work' || screen === 'campaigns' || screen === 'gantt') return true;
+      if (screen === 'home' || screen === 'my-work' || screen === 'people' || screen === 'campaigns' || screen === 'gantt') return true;
       if (screen === 'deals') return flags.show_deals_pipeline !== false;
       if (screen === 'reviews') return !!flags.show_reviews;
       if (screen === 'risks') return !!flags.show_risks;
@@ -4521,7 +4809,7 @@ __NAV_CONTROLS__
     }
 
     function applyScreenLayoutMode() {
-      const screens = ['home', 'my-work', 'deals', 'campaigns', 'gantt', 'reviews', 'risks', 'capacity', 'admin'];
+      const screens = ['home', 'my-work', 'deals', 'people', 'campaigns', 'gantt', 'reviews', 'risks', 'capacity', 'admin'];
       screens.forEach(screen => {
         document.body.classList.toggle(`screen-${screen}`, currentScreen === screen);
       });
@@ -5259,6 +5547,7 @@ __NAV_CONTROLS__
         ${statusPillDropdown({
           id: `delStatusDrop_${d.id}`,
           current: currentGlobalStatus,
+          currentRaw: currentDeliveryStatus,
           options,
           objectType: 'deliverable',
           objectId: d.id || '',
@@ -5267,6 +5556,112 @@ __NAV_CONTROLS__
           disabled: !canUseControl('advance_deliverable', currentRole),
         })}
       `;
+    }
+
+    function rerenderCurrentListFromCache() {
+      const screen = String(currentScreen || '').toLowerCase();
+      if (screen === 'campaigns') {
+        renderListModule('campaignsBody', LIST_ROWS_CACHE.campaigns || []);
+        requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('campaignsBody') || document));
+        return true;
+      }
+      if (screen === 'deals' || screen === 'scopes') {
+        renderListModule('dealsBody', LIST_ROWS_CACHE.deals || []);
+        requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('dealsBody') || document));
+        return true;
+      }
+      return false;
+    }
+
+    function recomputeListRowProgress(row) {
+      if (!row || !Array.isArray(row.children) || !row.children.length) return;
+      for (const child of row.children) recomputeListRowProgress(child);
+      const type = String(row.module_type || '').toLowerCase();
+      if (type === 'stage') {
+        row.progress_statuses = row.children
+          .filter(ch => String(ch.module_type || '').toLowerCase() === 'step')
+          .map(ch => normalizeStatusValue(ch.status || 'not_started'));
+        row.status = normalizeStatusValue(deriveStageStatus(row.children || []));
+        return;
+      }
+      if (type === 'campaign') {
+        row.progress_statuses = row.children
+          .filter(ch => String(ch.module_type || '').toLowerCase() === 'stage')
+          .map(ch => normalizeStatusValue(ch.status || 'not_started'));
+        return;
+      }
+      if (type === 'scope') {
+        row.progress_statuses = row.children
+          .filter(ch => String(ch.module_type || '').toLowerCase() === 'campaign')
+          .map(ch => normalizeStatusValue(ch.status || 'not_started'));
+      }
+    }
+
+    function updateListCachesForStatus(moduleType, objectId, newStatus, extras = {}) {
+      const targetType = String(moduleType || '').toLowerCase();
+      const targetId = String(objectId || '').trim();
+      const normalized = normalizeStatusValue(newStatus || 'not_started');
+      if (!targetType || !targetId) return false;
+      let changed = false;
+      const visit = (row) => {
+        if (!row || typeof row !== 'object') return;
+        const rowType = String(row.module_type || '').toLowerCase();
+        const rowId = String(row.id || '').trim();
+        if (rowType === targetType && rowId === targetId) {
+          row.status = normalized;
+          if (targetType === 'deliverable' && extras.delivery_status) row.delivery_status = String(extras.delivery_status).toLowerCase();
+          changed = true;
+        }
+        if (Array.isArray(row.children)) {
+          for (const child of row.children) visit(child);
+        }
+      };
+      for (const root of (LIST_ROWS_CACHE.campaigns || [])) visit(root);
+      for (const root of (LIST_ROWS_CACHE.deals || [])) visit(root);
+      for (const root of (LIST_ROWS_CACHE.campaigns || [])) recomputeListRowProgress(root);
+      for (const root of (LIST_ROWS_CACHE.deals || [])) recomputeListRowProgress(root);
+      return changed;
+    }
+
+    function listStatusControl(row, moduleType, status) {
+      const type = String(moduleType || '').toLowerCase();
+      const objectId = String(row?.id || '').trim();
+      const editable = (
+        (type === 'step' && canUseControl('manage_step', currentRole)) ||
+        (type === 'deliverable' && canUseControl('advance_deliverable', currentRole)) ||
+        (type === 'campaign' && canUseControl('manage_campaign_status', currentRole))
+      );
+      if (!editable || !objectId || !status) return status ? statusChip(status) : '';
+      if (type === 'deliverable') {
+        const currentRaw = String(row?.delivery_status || deliverableRawStatusFromGlobal(status)).toLowerCase();
+        const next = deliverableNextTransitions(currentRaw);
+        const options = [{ value: normalizeStatusValue(globalStatusFromDeliverableStatus(currentRaw)), raw: currentRaw }];
+        const seen = new Set(options.map(o => normalizeStatusValue(o.value)));
+        for (const nxt of next) {
+          const gv = normalizeStatusValue(globalStatusFromDeliverableStatus(nxt));
+          if (seen.has(gv)) continue;
+          seen.add(gv);
+          options.push({ value: gv, raw: nxt });
+        }
+        return statusPillDropdown({
+          id: `listDelStatusDrop_${objectId}`,
+          current: status,
+          currentRaw,
+          options,
+          objectType: 'deliverable',
+          objectId,
+          context: 'list',
+          ariaLabel: `Status for ${String(row?.title || 'deliverable')}`,
+        });
+      }
+      return statusPillDropdown({
+        id: `listStatusDrop_${type}_${objectId}`,
+        current: status,
+        objectType: type,
+        objectId,
+        context: 'list',
+        ariaLabel: `Status for ${String(row?.title || type)}`,
+      });
     }
 
     function queueItemCard(item) {
@@ -5743,7 +6138,7 @@ Cancel = Abort save`
       }
       const ids = statusContextIds(stepId, context);
       const statusHidden = document.getElementById(ids.hiddenStatusId);
-      const previousStatus = normalizeStatusValue(statusHidden?.value || 'not_started');
+      const previousStatus = normalizeStatusValue(statusHidden?.value || dropdownEl?.getAttribute('data-current-status') || 'not_started');
       const targetStatus = normalizeStatusValue(newStatus || previousStatus);
       if (targetStatus === previousStatus) {
         closeAllPillDropdowns();
@@ -5759,21 +6154,25 @@ Cancel = Abort save`
         const payload = {
           actor_user_id: currentActorId,
           status: targetStatus,
-          next_owner_user_id: ownerId,
           waiting_on_user_id: null,
           blocker_reason: reasonEl?.value || null,
           current_due_iso: dueRaw ? nextWorkingIsoFromIso(dueRaw) : null,
         };
+        if (context !== 'list') payload.next_owner_user_id = ownerId;
         const result = await api(`/api/workflow-steps/${stepId}/manage`, {
           method: 'PATCH',
           body: JSON.stringify(payload),
         });
         if (statusHidden) statusHidden.value = targetStatus;
+        if (dropdownEl) dropdownEl.setAttribute('data-current-status', targetStatus);
         setPillDropdownValue(dropdownEl, targetStatus);
         if (dueEl && result.current_due) dueEl.value = String(result.current_due).slice(0, 10);
         closeAllPillDropdowns();
         toast('Step status updated', 'success');
-        if (context === 'queue') {
+        if (context === 'list') {
+          updateListCachesForStatus('step', stepId, targetStatus);
+          rerenderCurrentListFromCache();
+        } else if (context === 'queue') {
           await renderMyWork(currentRole, currentActorId);
         } else {
           workspaceCache = null;
@@ -5799,7 +6198,7 @@ Cancel = Abort save`
         return;
       }
       const hidden = document.getElementById(`delStatus_${deliverableId}`);
-      const previousRaw = String(hidden?.value || '').toLowerCase();
+      const previousRaw = String(hidden?.value || dropdownEl?.getAttribute('data-current-raw') || '').toLowerCase();
       if (!rawStatus || String(rawStatus).toLowerCase() === previousRaw) {
         closeAllPillDropdowns();
         return;
@@ -5815,11 +6214,19 @@ Cancel = Abort save`
           }),
         });
         if (hidden) hidden.value = String(result.delivery_status || rawStatus).toLowerCase();
-        setPillDropdownValue(dropdownEl, normalizeStatusValue(result.status || globalStatus));
+        const resolvedRaw = String(result.delivery_status || rawStatus).toLowerCase();
+        const resolvedGlobal = normalizeStatusValue(result.status || globalStatus);
+        if (dropdownEl) dropdownEl.setAttribute('data-current-raw', resolvedRaw);
+        setPillDropdownValue(dropdownEl, resolvedGlobal);
         closeAllPillDropdowns();
         toast('Deliverable status updated', 'success');
-        workspaceCache = null;
-        await Promise.all([renderCampaignWorkspace(), renderDeliverables(), renderMyWork(currentRole, currentActorId)]);
+        if (String(dropdownEl?.getAttribute('data-context') || '').toLowerCase() === 'list') {
+          updateListCachesForStatus('deliverable', deliverableId, resolvedGlobal, { delivery_status: resolvedRaw });
+          rerenderCurrentListFromCache();
+        } else {
+          workspaceCache = null;
+          await Promise.all([renderCampaignWorkspace(), renderDeliverables(), renderMyWork(currentRole, currentActorId)]);
+        }
       } catch (err) {
         setPillDropdownValue(dropdownEl, normalizeStatusValue(globalStatusFromDeliverableStatus(previousRaw || 'planned')));
         toast(`Unable to update deliverable status: ${String(err)}`, 'error');
@@ -5839,7 +6246,7 @@ Cancel = Abort save`
         return;
       }
       const hidden = document.getElementById(`campStatus_${campaignId}`);
-      const previousStatus = normalizeStatusValue(hidden?.value || 'not_started');
+      const previousStatus = normalizeStatusValue(hidden?.value || dropdownEl?.getAttribute('data-current-status') || 'not_started');
       const targetStatus = normalizeStatusValue(newStatus || previousStatus);
       if (targetStatus === previousStatus) {
         closeAllPillDropdowns();
@@ -5856,12 +6263,18 @@ Cancel = Abort save`
         });
         const resolvedStatus = normalizeStatusValue(result.status || targetStatus);
         if (hidden) hidden.value = resolvedStatus;
+        if (dropdownEl) dropdownEl.setAttribute('data-current-status', resolvedStatus);
         setPillDropdownValue(dropdownEl, resolvedStatus);
         closeAllPillDropdowns();
         toast('Campaign status updated', 'success');
-        await runCampaignAwareRefresh(async () => {
-          await renderCampaigns();
-        });
+        if (String(dropdownEl?.getAttribute('data-context') || '').toLowerCase() === 'list') {
+          updateListCachesForStatus('campaign', campaignId, resolvedStatus);
+          rerenderCurrentListFromCache();
+        } else {
+          await runCampaignAwareRefresh(async () => {
+            await renderCampaigns();
+          });
+        }
       } catch (err) {
         if (hidden) hidden.value = previousStatus;
         setPillDropdownValue(dropdownEl, previousStatus);
@@ -6619,6 +7032,7 @@ Cancel = Abort`
           id: deliverable.id,
           title: deliverable.title || deliverable.id || 'Deliverable',
           status: normalizeStatusValue(deliverable.status || 'not_started'),
+          delivery_status: String(deliverable.delivery_status || deliverableRawStatusFromGlobal(deliverable.status || 'not_started')).toLowerCase(),
           health: '',
           owner_initials: deliverable.owner_initials || '--',
           owner_name: deliverable.owner_name || '',
@@ -6653,9 +7067,17 @@ Cancel = Abort`
     }
 
     async function renderDeals() {
-      const data = await api('/api/deals');
-      const statusFilter = getFilterValue('qDeals');
-      const items = data.items.filter(d => statusFilter === 'all' || String(d.status || '').toLowerCase() === statusFilter);
+      const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
+      const data = await api(`/api/deals${actorQ}`);
+      const productFilter = getFilterValue('qProducts') || 'all';
+      const items = data.items.filter(d => {
+        if (productFilter === 'all') return true;
+        const lines = Array.isArray(d?.product_lines) ? d.product_lines : [];
+        const campaigns = Array.isArray(d?.campaigns) ? d.campaigns : [];
+        const matchLine = lines.some(line => String(line?.product_type || '').toLowerCase() === productFilter);
+        const matchCampaign = campaigns.some(c => String(c?.type || '').toLowerCase() === productFilter);
+        return matchLine || matchCampaign;
+      });
       const allCampaigns = items.flatMap(scope => Array.isArray(scope?.campaigns) ? scope.campaigns : []);
       const workspaceEntries = await Promise.all(allCampaigns.map(async (campaign) => {
         const cid = String(campaign?.id || campaign?.campaign_id || '').trim();
@@ -6668,9 +7090,90 @@ Cancel = Abort`
         }
       }));
       const workspaceMap = Object.fromEntries(workspaceEntries.filter(([k]) => !!k));
-      renderListModule('dealsBody', buildScopeListRows(items, workspaceMap));
+      const rows = buildScopeListRows(items, workspaceMap);
+      LIST_ROWS_CACHE.deals = rows;
+      renderListModule('dealsBody', rows);
       document.getElementById('dealsCount').textContent = `${items.length} shown / ${data.items.length} total`;
       return data.items;
+    }
+
+    function teamLabel(value) {
+      const v = String(value || '').toLowerCase();
+      if (v === 'client_services') return 'Client Services';
+      if (v === 'sales') return 'Sales';
+      if (v === 'editorial') return 'Editorial';
+      if (v === 'marketing') return 'Marketing';
+      return value || '-';
+    }
+
+    function seniorityLabel(value) {
+      const v = String(value || '').toLowerCase();
+      if (v === 'leadership') return 'Leadership';
+      if (v === 'manager') return 'Manager';
+      if (v === 'standard') return 'Standard';
+      return value || '-';
+    }
+
+    function appRoleLabel(value) {
+      const v = String(value || '').toLowerCase();
+      if (v === 'superadmin') return 'Superadmin';
+      if (v === 'admin') return 'Admin';
+      if (v === 'user') return 'User';
+      return value || '-';
+    }
+
+    function togglePeopleNameSort() {
+      peopleSortDirection = peopleSortDirection === 'asc' ? 'desc' : 'asc';
+      renderPeople().catch(err => log('People render failed', String(err)));
+    }
+
+    async function renderPeople() {
+      const data = await api('/api/users');
+      const teamFilter = getFilterValue('qPeopleTeam') || 'all';
+      const seniorityFilter = getFilterValue('qPeopleSeniority') || 'all';
+      const appRoleFilter = getFilterValue('qPeopleAppRole') || 'all';
+      const items = (data.items || []).filter((u) => {
+        const teamOk = teamFilter === 'all' || String(u.primary_team || '').toLowerCase() === teamFilter;
+        const seniorityOk = seniorityFilter === 'all' || String(u.seniority || '').toLowerCase() === seniorityFilter;
+        const appRoleOk = appRoleFilter === 'all' || String(u.app_role || '').toLowerCase() === appRoleFilter;
+        return teamOk && seniorityOk && appRoleOk;
+      });
+      const sortedItems = [...items].sort((a, b) => {
+        const an = String(a?.name || '').toLowerCase();
+        const bn = String(b?.name || '').toLowerCase();
+        const cmp = an.localeCompare(bn);
+        return peopleSortDirection === 'desc' ? -cmp : cmp;
+      });
+      const body = document.getElementById('peopleBody');
+      const count = document.getElementById('peopleCount');
+      if (count) count.textContent = `${items.length} shown / ${(data.items || []).length} total`;
+      if (!body) return items;
+      const sortArrow = peopleSortDirection === 'asc' ? '↑' : '↓';
+      body.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th><button type='button' class='ghost' onclick='togglePeopleNameSort()'>Name ${sortArrow}</button></th>
+              <th>Email</th>
+              <th>Team</th>
+              <th>Seniority</th>
+              <th>App Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sortedItems.map((u) => `
+              <tr>
+                <td><strong>${escapeHtml(u.name || '-')}</strong></td>
+                <td>${escapeHtml(u.email || '-')}</td>
+                <td><span class='tag'>${teamLabel(u.primary_team)}</span></td>
+                <td><span class='tag'>${seniorityLabel(u.seniority)}</span></td>
+                <td><span class='tag'>${appRoleLabel(u.app_role)}</span></td>
+              </tr>
+            `).join('') || "<tr><td colspan='5' class='sub'>No people match these filters.</td></tr>"}
+          </tbody>
+        </table>
+      `;
+      return sortedItems;
     }
 
     function campaignDeepLinkTargetFromUrl() {
@@ -6786,6 +7289,17 @@ Cancel = Abort`
       if (!key) return;
       if (LIST_EXPANDED_ROW_KEYS.has(key)) LIST_EXPANDED_ROW_KEYS.delete(key);
       else LIST_EXPANDED_ROW_KEYS.add(key);
+      const screen = String(currentScreen || '').toLowerCase();
+      if (screen === 'campaigns' && Array.isArray(LIST_ROWS_CACHE.campaigns) && LIST_ROWS_CACHE.campaigns.length) {
+        renderListModule('campaignsBody', LIST_ROWS_CACHE.campaigns);
+        requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('campaignsBody') || document));
+        return;
+      }
+      if ((screen === 'deals' || screen === 'scopes') && Array.isArray(LIST_ROWS_CACHE.deals) && LIST_ROWS_CACHE.deals.length) {
+        renderListModule('dealsBody', LIST_ROWS_CACHE.deals);
+        requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('dealsBody') || document));
+        return;
+      }
       renderScreen().catch(err => log('List row toggle failed', String(err)));
     }
 
@@ -6807,8 +7321,19 @@ Cancel = Abort`
       const objId = String(objectId || '').trim();
       if (!act || !objId) return;
       if (act === 'open') {
-        const path = listOpenPath(type, objId, campaignId);
-        if (path) window.location.href = path;
+        const row = document.querySelector(`.list-module-row[data-module='${type}'][data-object-id='${objId}']`);
+        const encoded = String(row?.getAttribute('data-list-popover-payload') || '').trim();
+        if (encoded) {
+          openObjectPanelByEncoded(encoded);
+          return;
+        }
+        const payload = await fetchObjectPanelPayload(type, objId, campaignId);
+        if (payload) {
+          openObjectPanelByPayload(payload);
+        } else {
+          const path = listOpenPath(type, objId, campaignId);
+          if (path) window.location.href = path;
+        }
         return;
       }
       if (act === 'edit') {
@@ -6939,7 +7464,8 @@ Cancel = Abort`
     }
 
     async function renderCampaigns() {
-      const data = await api('/api/campaigns');
+      const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
+      const data = await api(`/api/campaigns${actorQ}`);
       campaignHealthByCampaignId = {};
       for (const item of (data.items || [])) {
         campaignHealthByCampaignId[item.id] = {
@@ -6951,13 +7477,19 @@ Cancel = Abort`
       }
       const deepTarget = campaignDeepLinkTargetFromUrl();
       let statusFilter = getFilterValue('qCampaigns');
+      const productFilter = getFilterValue('qProducts') || 'all';
       if (deepTarget && statusFilter !== 'all') {
         if (campaignFilterBeforeForceReveal == null) campaignFilterBeforeForceReveal = statusFilter;
         const filterEl = document.getElementById('qCampaigns');
         if (filterEl) filterEl.value = 'all';
         statusFilter = 'all';
       }
-      const items = data.items.filter(c => statusFilter === 'all' || String(c.status || '').toLowerCase() === statusFilter);
+      const items = data.items.filter(c => {
+        const statusOk = statusFilter === 'all' || String(c.status || '').toLowerCase() === statusFilter;
+        if (!statusOk) return false;
+        if (productFilter === 'all') return true;
+        return String(c.type || '').toLowerCase() === productFilter;
+      });
       const workspaceEntries = await Promise.all(items.map(async (campaign) => {
         try {
           const ws = await api(`/api/campaigns/${encodeURIComponent(campaign.id)}/workspace`);
@@ -6983,7 +7515,9 @@ Cancel = Abort`
           if (stageId) LIST_EXPANDED_ROW_KEYS.add(rowKeyFor('stage', stageId));
         }
       }
-      renderListModule('campaignsBody', buildCampaignRows(items, workspaceMap));
+      const rows = buildCampaignRows(items, workspaceMap);
+      LIST_ROWS_CACHE.campaigns = rows;
+      renderListModule('campaignsBody', rows);
       document.getElementById('campaignsCount').textContent = `${items.length} shown / ${data.items.length} total`;
 
       const select = document.getElementById('workspaceCampaignSelect');
@@ -7238,7 +7772,7 @@ Cancel = Abort`
       if (kind === 'campaign') {
         const health = String(row?.campaign?.health || 'not_started').toLowerCase();
         let cls = '';
-        let label = 'Not started';
+        let label = 'Not due';
         if (health === 'on_track') { cls = 'ok'; label = 'On Track'; }
         else if (health === 'at_risk') { cls = 'warn'; label = 'At Risk'; }
         else if (health === 'off_track') { cls = 'risk'; label = 'Off Track'; }
@@ -9040,7 +9574,7 @@ Cancel = Abort`
 
     async function renderDeliverables() {
       const data = await api('/api/deliverables');
-      const statusFilter = getFilterValue('qDeliverables');
+      const statusFilter = getFilterValue('qDeliverables') || 'all';
       const items = data.items.filter(d => statusFilter === 'all' || String(d.status || '').toLowerCase() === statusFilter);
       const body = document.getElementById('deliverablesBody');
       const select = document.getElementById('historyDeliverableSelect');
@@ -9209,19 +9743,128 @@ Cancel = Abort`
       positionPopoverNear(pop, { left: rect.left, right: rect.left, top: rect.top });
     }
 
-    function closeItemPopover() {
-      const pop = document.getElementById('itemPopover');
-      if (!pop) return;
-      pop.classList.add('hidden');
-      pop.classList.remove('has-module');
-      pop.innerHTML = '';
+    function objectPanelMetaFromPayload(payload = {}) {
+      const type = String(payload?.module_type || '').toLowerCase();
+      const source = type === 'scope' ? payload.scope
+        : type === 'campaign' ? payload.campaign
+        : type === 'stage' ? payload.stage
+        : type === 'deliverable' ? payload.deliverable
+        : payload.step;
+      const title = String(source?.title || source?.name || source?.client_name || source?.id || MODULE_TYPE_LABELS[type] || 'Object');
+      const subtitle = String(
+        source?.campaign_name
+        || payload?.campaign?.title
+        || source?.id
+        || ''
+      ).trim();
+      const status = normalizeStatusValue(source?.status || source?.step_state || 'not_started');
+      const health = String(source?.health || payload?.campaign?.health || '').toLowerCase();
+      const due = source?.current_due || source?.timeframe_due || source?.sow_end_date || source?.due_date || null;
+      const openPath = payload.open_deep_link || popoverOpenDeepLinkForPayload(payload) || payload.open_path || null;
+      return { type, source, title, subtitle, status, health, due, openPath };
     }
 
-    function openItemPopoverByPayload(buttonEl, payloadEncoded) {
-      const payload = decodePopoverPayload(payloadEncoded);
-      const pop = document.getElementById('itemPopover');
-      if (!payload || !pop || !buttonEl) return;
-      const rect = buttonEl.getBoundingClientRect();
+    function objectPanelHeaderHtml(payload = {}) {
+      const meta = objectPanelMetaFromPayload(payload);
+      const canMenuEdit = canEditFromModuleMenu(meta.type);
+      const editing = canMenuEdit && isModuleEditing(meta.type, String(meta.source?.id || ''));
+      const canDeleteCampaign = meta.type === 'campaign' && canUseControl('delete_campaign', currentRole);
+      const canDeleteDeliverable = meta.type === 'deliverable' && canUseControl('delete_deliverable', currentRole);
+      const menuActions = [
+        `<button type='button' class='module-options-item' data-module-menu-action='open' data-module-type='${meta.type}' data-object-id='${String(meta.source?.id || '')}' data-campaign-id='${String(payload?.campaign?.id || meta.source?.campaign_id || '')}'>Open</button>`,
+        canMenuEdit
+          ? `<button type='button' class='module-options-item' data-module-menu-action='edit' data-module-type='${meta.type}' data-object-id='${String(meta.source?.id || '')}' data-campaign-id='${String(payload?.campaign?.id || meta.source?.campaign_id || '')}'>${editing ? 'Done Editing' : 'Edit'}</button>`
+          : '',
+        canDeleteCampaign
+          ? `<button type='button' class='module-options-item danger' data-module-menu-action='delete' data-module-type='campaign' data-object-id='${String(meta.source?.id || '')}'>Delete Campaign</button>`
+          : '',
+        canDeleteDeliverable
+          ? `<button type='button' class='module-options-item danger' data-module-menu-action='delete' data-module-type='deliverable' data-object-id='${String(meta.source?.id || '')}'>Delete Deliverable</button>`
+          : '',
+      ].filter(Boolean).join('');
+      const menu = `
+        <div class='module-options' data-module-options='1' data-options-wrap='1'>
+          ${moduleOptionsButton()}
+          <div class='module-options-menu'>
+            ${menuActions || "<button type='button' class='module-options-item' disabled>No actions</button>"}
+          </div>
+        </div>
+      `;
+      return `
+        <div class='object-panel-title-row'>
+          <div class='object-panel-title-left'>
+            <span class='module-icon'>${moduleIcon(meta.type)}</span>
+            <div style='min-width:0;'>
+              <div class='object-panel-title'>${escapeHtml(meta.title)}</div>
+              ${meta.subtitle ? `<div class='object-panel-subtitle'>${escapeHtml(meta.subtitle)}</div>` : ''}
+            </div>
+          </div>
+          <div class='module-head-controls'>${menu}<button type='button' class='ghost module-close-btn' onclick='closeObjectPanel()'>Close</button></div>
+        </div>
+      `;
+    }
+
+    function objectPanelFooterHtml(payload = {}) {
+      const meta = objectPanelMetaFromPayload(payload);
+      const dueText = meta.due ? `Due ${niceDate(meta.due)}` : '';
+      const openBtn = meta.openPath ? `<button class='primary' onclick='window.location.href="${String(meta.openPath).replace(/"/g, '&quot;')}"'>Open</button>` : '';
+      return `
+        <div class='object-panel-footer-left'>
+          ${statusChip(meta.status)}
+          ${meta.health ? healthChip(meta.health) : ''}
+          ${dueText ? `<span class='due-text'>${dueText}</span>` : ''}
+        </div>
+        <div class='object-panel-footer-right'>
+          ${openBtn}
+        </div>
+      `;
+    }
+
+    function closeObjectPanel() {
+      panelOpen = false;
+      panelObjectType = '';
+      panelObjectId = '';
+      panelPayload = null;
+      const panel = document.getElementById('objectPanel');
+      const backdrop = document.getElementById('objectPanelBackdrop');
+      const body = document.getElementById('objectPanelBody');
+      const header = document.getElementById('objectPanelHeader');
+      const footer = document.getElementById('objectPanelFooter');
+      if (panel) {
+        panel.classList.remove('open');
+        panel.classList.add('hidden');
+      }
+      if (backdrop) {
+        backdrop.classList.remove('open');
+        backdrop.classList.add('hidden');
+      }
+      if (body) body.innerHTML = '';
+      if (header) header.innerHTML = '';
+      if (footer) footer.innerHTML = '';
+    }
+
+    function closeItemPopover() {
+      closeObjectPanel();
+    }
+
+    function extractPanelModuleBodyHtml(moduleHtml = '') {
+      const html = String(moduleHtml || '').trim();
+      if (!html) return html;
+      const template = document.createElement('template');
+      template.innerHTML = html;
+      const fields = template.content.querySelector('.module-popover .module-fields')
+        || template.content.querySelector('.module-card .module-fields');
+      return fields ? fields.outerHTML : html;
+    }
+
+    function openObjectPanelByPayload(payload) {
+      if (!payload) return;
+      const panel = document.getElementById('objectPanel');
+      const backdrop = document.getElementById('objectPanelBackdrop');
+      const body = document.getElementById('objectPanelBody');
+      const header = document.getElementById('objectPanelHeader');
+      const footer = document.getElementById('objectPanelFooter');
+      if (!panel || !body || !header || !footer) return;
       const details = Array.isArray(payload.details) ? payload.details : [];
       let moduleHtml = '';
       if (payload.module_type === 'step' && payload.step) {
@@ -9269,12 +9912,41 @@ Cancel = Abort`
           openLabel: payload.open_label || 'Open',
         });
       }
-      pop.classList.toggle('has-module', !!moduleHtml);
-      pop.innerHTML = moduleHtml || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`;
-      pop.classList.remove('hidden');
-      positionPopoverNear(pop, rect);
-      requestAnimationFrame(() => positionPopoverNear(pop, rect));
-      requestAnimationFrame(() => applyModuleLayoutRules(pop));
+      panelPayload = payload;
+      panelOpen = true;
+      panelObjectType = String(payload.module_type || '').toLowerCase();
+      panelObjectId = String(
+        payload?.scope?.id
+        || payload?.campaign?.id
+        || payload?.stage?.id
+        || payload?.deliverable?.id
+        || payload?.step?.id
+        || ''
+      );
+      header.innerHTML = objectPanelHeaderHtml(payload);
+      footer.innerHTML = objectPanelFooterHtml(payload);
+      body.innerHTML = extractPanelModuleBodyHtml(moduleHtml)
+        || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`;
+      panel.classList.add('open');
+      panel.classList.remove('hidden');
+      const isMobile = (window.innerWidth || 0) <= 980;
+      if (backdrop) {
+        backdrop.classList.toggle('open', isMobile);
+        backdrop.classList.toggle('hidden', !isMobile);
+      }
+      requestAnimationFrame(() => applyModuleLayoutRules(panel));
+    }
+
+    function openObjectPanelByEncoded(payloadEncoded) {
+      const payload = decodePopoverPayload(payloadEncoded);
+      if (!payload) return;
+      openObjectPanelByPayload(payload);
+    }
+
+    function openItemPopoverByPayload(buttonEl, payloadEncoded) {
+      const payload = decodePopoverPayload(payloadEncoded);
+      if (!payload) return;
+      openObjectPanelByPayload(payload);
     }
 
     function capacityCellKey(userId, weekStart) {
@@ -10160,6 +10832,10 @@ Cancel = Abort`
           await renderDeals();
           return;
         }
+        if (screen === 'people') {
+          await renderPeople();
+          return;
+        }
         if (screen === 'campaigns') {
           await renderCampaigns();
           return;
@@ -10228,6 +10904,7 @@ Cancel = Abort`
         home: ['sectionControls', 'kpis', 'sectionMyWork'],
         'my-work': ['sectionControls', 'sectionMyWork'],
         deals: ['sectionControls', 'sectionActions', 'sectionDeals'],
+        people: ['sectionPeople'],
         campaigns: ['sectionControls', 'sectionCampaigns'],
         gantt: ['sectionControls', 'sectionGantt'],
         reviews: ['sectionControls', 'sectionReviews', 'sectionHistory'],
@@ -10242,6 +10919,7 @@ Cancel = Abort`
         'sectionMyWork',
         'sectionActions',
         'sectionDeals',
+        'sectionPeople',
         'sectionCampaigns',
         'sectionGantt',
         'sectionReviews',
@@ -10732,14 +11410,12 @@ Cancel = Abort`
       syncRailAnchors();
       applyModuleLayoutRules();
       updateGanttBarOverflowLabels();
-      keepPopoverInViewport(document.getElementById('itemPopover'));
       keepPopoverInViewport(document.getElementById('capacityCellPopover'));
     });
     window.addEventListener('orientationchange', () => {
       syncRailAnchors();
       applyModuleLayoutRules();
       updateGanttBarOverflowLabels();
-      keepPopoverInViewport(document.getElementById('itemPopover'));
       keepPopoverInViewport(document.getElementById('capacityCellPopover'));
     });
     document.addEventListener('click', (event) => {
@@ -10781,18 +11457,6 @@ Cancel = Abort`
         return;
       }
 
-      const listOptionsTrigger = target.closest('.list-options [data-module-options-trigger]');
-      if (listOptionsTrigger instanceof HTMLElement) {
-        event.preventDefault();
-        event.stopPropagation();
-        const optionsWrap = listOptionsTrigger.closest('[data-list-options]');
-        if (!(optionsWrap instanceof HTMLElement)) return;
-        const opening = !optionsWrap.classList.contains('open');
-        closeAllModuleOptionMenus(optionsWrap);
-        optionsWrap.classList.toggle('open', opening);
-        return;
-      }
-
       const menuAction = target.closest('[data-module-menu-action]');
       if (menuAction instanceof HTMLElement) {
         event.preventDefault();
@@ -10811,11 +11475,12 @@ Cancel = Abort`
       if (optionsTrigger instanceof HTMLElement) {
         event.preventDefault();
         event.stopPropagation();
-        const optionsWrap = optionsTrigger.closest('[data-module-options]');
+        const optionsWrap = optionsTrigger.closest('[data-options-wrap], [data-module-options], [data-list-options]');
         if (!(optionsWrap instanceof HTMLElement)) return;
         const opening = !optionsWrap.classList.contains('open');
         closeAllModuleOptionMenus(optionsWrap);
         optionsWrap.classList.toggle('open', opening);
+        optionsTrigger.setAttribute('aria-expanded', opening ? 'true' : 'false');
         return;
       }
 
@@ -10890,6 +11555,7 @@ Cancel = Abort`
       if (key === 'Escape') {
         closeAllModuleOptionMenus();
         closeAllPillDropdowns();
+        closeObjectPanel();
         return;
       }
       const target = event.target;
