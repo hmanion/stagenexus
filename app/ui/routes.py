@@ -436,14 +436,12 @@ def index() -> str:
     }
     .panel-details-title,
     .object-panel-children-title {
-      font-size: 11px;
+      font-size: 1rem;
       font-weight: 700;
       letter-spacing: 0.08em;
       color: var(--ink-3);
       text-transform: uppercase;
       margin-top: 0.25rem;
-      padding-top: 10px;
-      border-top: 1px solid var(--line);
     }
     .panel-details-grid,
     .object-panel-children-list {
@@ -988,10 +986,8 @@ def index() -> str:
       min-width: 22px;
       height: 20px;
       padding: 0 6px;
-      border-radius: 999px;
-      border: 0;
-      background: rgba(255, 255, 255, 0.72);
-      color: inherit;
+      border-radius: 4px;
+      border-width: 1px;
       font-family: 'DM Mono', ui-monospace, monospace;
       font-size: 11px;
       line-height: 1;
@@ -1452,18 +1448,29 @@ def index() -> str:
       justify-content: center;
       min-width: 28px;
       height: 24px;
-      border-radius: 999px;
-      border: 0;
-      background: var(--surface-2);
-      color: var(--ink);
+      border-radius: 4px;
+      border: 1px solid transparent;
+      background: var(--violet-light);
+      color: var(--violet);
       font-family: 'DM Mono', ui-monospace, monospace;
       font-size: 12px;
       font-weight: 600;
       padding: 0 8px;
     }
-    .user-pill.owner {
+    .user-pill.team-client-services {
+      background: var(--violet-light);
+      color: var(--violet);
+    }
+    .user-pill.team-sales {
+      background: var(--sage-light);
+      color: var(--sage);
+    }
+    .user-pill.team-editorial {
       background: var(--cobalt-light);
       color: var(--cobalt);
+    }
+    .user-pill.owner {
+      border-color: currentColor;
     }
     .module-row {
       display: flex;
@@ -2543,7 +2550,7 @@ def index() -> str:
     .tag {
       display: inline-block;
       padding: 2px 8px;
-      border-radius: 100px;
+      border-radius: 4px;
       font-size: 12px;
       font-weight: 600;
       padding: 3px 8px;
@@ -3358,6 +3365,7 @@ __NAV_CONTROLS__
     let demoRailMinimised = false;
     let usersDirectory = [];
     let usersById = {};
+    let usersByName = {};
     let adminUsersEditableRoles = ['am', 'head_ops', 'cm', 'cc', 'dn', 'mm', 'admin', 'leadership_viewer', 'head_sales', 'client'];
     let campaignHealthByCampaignId = {};
     let currentRoleControls = null;
@@ -4111,7 +4119,7 @@ __NAV_CONTROLS__
       const html = entries.map(u => {
         const initials = String(u?.initials || '--');
         const name = String(u?.name || '').trim();
-        return userPill(initials, false, name || null);
+        return userPill(initials, false, name || null, { userId: u?.id || u?.user_id || '', roleKey: u?.role || '', team: u?.team || '' });
       }).join('');
       return `<div class='avatar-stack'>${html}</div>`;
     }
@@ -4182,6 +4190,7 @@ __NAV_CONTROLS__
       const health = String(listObjectValue(row, 'health') || row?.health || '').toLowerCase();
       const ownerInitials = String(row?.owner_initials || '--').trim() || '--';
       const ownerName = String(row?.owner_name || '').trim();
+      const ownerUserId = String(row?.owner_user_id || row?.next_owner_user_id || '').trim();
       const participants = Array.isArray(row?.participants) ? row.participants : [];
       const contextId = String(listObjectValue(row, 'context_id') || row?.context_id || listContextIdForRow(row) || '').trim();
       const popoverPayload = encodePopoverPayload(listRowPopoverPayload(row));
@@ -4197,10 +4206,10 @@ __NAV_CONTROLS__
         ${listSlotEnabled(moduleType, 'progress') ? listProgressHtml(row?.progress_statuses || []) : ''}
         ${listSlotEnabled(moduleType, 'status') && status ? listStatusControl(row, moduleType, status) : ''}
         ${listSlotEnabled(moduleType, 'health') && health ? healthChip(health) : ''}
-        ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, false, ownerName || null)}</span>` : ''}
+        ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, true, ownerName || null, { userId: ownerUserId })}</span>` : ''}
       `;
       const avatarsHtml = listSlotEnabled(moduleType, 'avatars')
-        ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null)).join('')}</span>`
+        ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null, { userId: p?.id || p?.user_id || '', roleKey: p?.role || '', team: p?.team || '' })).join('')}</span>`
         : '';
       const contextIdHtml = (listSlotEnabled(moduleType, 'context_id') && contextId)
         ? `<span class='list-context-id'>${escapeHtml(contextId)}</span>`
@@ -4351,6 +4360,24 @@ __NAV_CONTROLS__
       return String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
     }
 
+    function stageStepMatches(stage = {}, step = {}) {
+      const stageId = String(stage?.id || '').trim();
+      const stageDisplayId = String(stage?.display_id || '').trim();
+      const stageNameKey = stageKeyFromName(stage?.name || '');
+      const stepStageId = String(step?.stage_id || '').trim();
+      const stepStageKey = stageKeyFromName(step?.stage_name || step?.stage || step?.deliverable_stage || '');
+      return (
+        (stageId && stepStageId === stageId)
+        || (stageDisplayId && stepStageId === stageDisplayId)
+        || (stageNameKey && stepStageKey && stepStageKey === stageNameKey)
+      );
+    }
+
+    function stageStepsForWorkspaceStage(workspace = {}, stage = {}) {
+      const steps = Array.isArray(workspace?.workflow_steps?.items) ? workspace.workflow_steps.items : [];
+      return steps.filter(step => stageStepMatches(stage, step));
+    }
+
     function normalizePanelChildItem(moduleType, source = {}, campaignId = '') {
       const type = String(moduleType || '').toLowerCase().trim();
       const id = String(source?.id || '').trim();
@@ -4391,20 +4418,7 @@ __NAV_CONTROLS__
 
     function stageChildrenItems(workspace = {}, stage = {}, campaignId = '') {
       const cid = String(campaignId || workspace?.campaign?.id || '').trim();
-      const stageId = String(stage?.id || '').trim();
-      const stageDisplayId = String(stage?.display_id || '').trim();
-      const stageNameKey = stageKeyFromName(stage?.name || '');
-      const steps = Array.isArray(workspace?.workflow_steps?.items) ? workspace.workflow_steps.items : [];
-      return steps
-        .filter(step => {
-          const stepStageId = String(step?.stage_id || '').trim();
-          const stepStageKey = stageKeyFromName(step?.stage_name || step?.stage || step?.deliverable_stage || '');
-          return (
-            (stageId && stepStageId === stageId)
-            || (stageDisplayId && stepStageId === stageDisplayId)
-            || (stageNameKey && stepStageKey && stepStageKey === stageNameKey)
-          );
-        })
+      return stageStepsForWorkspaceStage(workspace, stage)
         .map(step => normalizePanelChildItem('step', step, cid))
         .filter(Boolean);
     }
@@ -4531,6 +4545,7 @@ __NAV_CONTROLS__
         if (type === 'stage') {
           const stage = (ws?.stages || []).find(s => String(s?.id || '') === id);
           if (!stage) return null;
+          const stageSteps = stageStepsForWorkspaceStage(ws, stage);
           return {
             module_type: 'stage',
             stage: {
@@ -4538,6 +4553,7 @@ __NAV_CONTROLS__
               campaign_id: cid,
               campaign_name: ws?.campaign?.title || '',
             },
+            stage_steps: stageSteps,
             campaign: ws?.campaign || { id: cid },
             children_items: stageChildrenItems(ws, stage, cid),
             open_label: 'Open',
@@ -4666,8 +4682,8 @@ __NAV_CONTROLS__
       `;
     }
 
-    function ownerChipWithChevron(initials, fullName = null, owner = true) {
-      const pill = userPill(initials || '--', owner, fullName || null);
+    function ownerChipWithChevron(initials, fullName = null, owner = true, options = {}) {
+      const pill = userPill(initials || '--', owner, fullName || null, options);
       return pill
         .replace("class='", "class='has-dropdown-caret ")
         .replace('</span>', "<span class='pill-dropdown-caret-inline' aria-hidden='true'>▾</span></span>");
@@ -4688,13 +4704,13 @@ __NAV_CONTROLS__
         const safeName = String(u.name || '').replace(/'/g, '&#39;');
         const selAttr = selected ? " aria-selected='true'" : " aria-selected='false'";
         const initials = u.initials || initialsFromName(u.name || '');
-        const chip = userPill(initials || '--', false, u.name || null);
+        const chip = userPill(initials || '--', false, u.name || null, { userId: val, roleKey: options.roleKey || '' });
         return `<button type='button' class='pill-dropdown-option owner-option' role='option' data-dropdown-option='1' data-value='${val}' data-name='${safeName}' data-initials='${initials || '--'}'${selAttr} data-index='${idx}'><span class='owner-option-main'>${chip}<span class='owner-option-name'>${u.name || 'Unassigned'}</span></span></button>`;
       }).join('');
       return `
         <div class='pill-dropdown ${options.className || ''}' data-dropdown-kind='owner' data-dropdown-id='${id}' data-context='${options.context || ''}' data-object-type='${options.objectType || ''}' data-object-id='${options.objectId || ''}' data-owner-hidden-id='${options.hiddenInputId || ''}' data-role-key='${options.roleKey || ''}'>
           <button type='button' class='pill-dropdown-trigger' data-dropdown-trigger='1' aria-haspopup='listbox' aria-expanded='false' aria-label='${options.ariaLabel || 'Owner'}' ${disabled}>
-            ${ownerChipWithChevron(currentInitials, currentName, true)}
+            ${ownerChipWithChevron(currentInitials, currentName, true, { userId: currentUserId, roleKey: options.roleKey || '' })}
           </button>
           <div class='pill-dropdown-menu' role='listbox' tabindex='-1'>
             ${items}
@@ -4717,10 +4733,56 @@ __NAV_CONTROLS__
       }
     }
 
+    function positionPillDropdownMenu(dropdown) {
+      if (!dropdown) return;
+      const menu = dropdown.querySelector('.pill-dropdown-menu');
+      const trigger = dropdown.querySelector('[data-dropdown-trigger]');
+      if (!(menu instanceof HTMLElement) || !(trigger instanceof HTMLElement)) return;
+      const margin = 12;
+      const gap = 6;
+      const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      if (vw <= 0 || vh <= 0) return;
+
+      // Reset before measuring so we can compute natural menu size.
+      menu.style.position = 'fixed';
+      menu.style.left = '0px';
+      menu.style.top = '0px';
+      menu.style.right = 'auto';
+      menu.style.bottom = 'auto';
+      menu.style.maxHeight = `${Math.max(160, vh - (margin * 2))}px`;
+      menu.style.overflowY = 'auto';
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+
+      let left = triggerRect.left;
+      if (left + menuRect.width > vw - margin) left = vw - margin - menuRect.width;
+      if (left < margin) left = margin;
+
+      let top = triggerRect.bottom + gap;
+      if (top + menuRect.height > vh - margin) {
+        const above = triggerRect.top - gap - menuRect.height;
+        if (above >= margin) top = above;
+        else top = Math.max(margin, vh - margin - menuRect.height);
+      }
+      if (top < margin) top = margin;
+
+      menu.style.left = `${Math.round(left)}px`;
+      menu.style.top = `${Math.round(top)}px`;
+    }
+
+    function keepPillDropdownsInViewport() {
+      const openDropdowns = Array.from(document.querySelectorAll('.pill-dropdown.open'));
+      for (const dd of openDropdowns) positionPillDropdownMenu(dd);
+    }
+
     function openPillDropdown(dropdown) {
       if (!dropdown) return;
       closeAllPillDropdowns(dropdown);
       dropdown.classList.add('open');
+      positionPillDropdownMenu(dropdown);
+      requestAnimationFrame(() => positionPillDropdownMenu(dropdown));
       const trigger = dropdown.querySelector('[data-dropdown-trigger]');
       if (trigger) trigger.setAttribute('aria-expanded', 'true');
       const selected = dropdown.querySelector('[data-dropdown-option][aria-selected=\"true\"]');
@@ -4764,7 +4826,8 @@ __NAV_CONTROLS__
       if (!dropdown) return;
       const trigger = dropdown.querySelector('[data-dropdown-trigger]');
       if (!trigger) return;
-      trigger.innerHTML = ownerChipWithChevron(initials || '--', fullName || null, true);
+      const roleKey = String(dropdown.getAttribute('data-role-key') || '').trim();
+      trigger.innerHTML = ownerChipWithChevron(initials || '--', fullName || null, true, { userId, roleKey });
       trigger.dataset.originalHtml = trigger.innerHTML;
       const hiddenId = dropdown.getAttribute('data-owner-hidden-id') || '';
       if (hiddenId) {
@@ -5289,6 +5352,46 @@ __NAV_CONTROLS__
       return `${parts[0][0] || ''}${parts[parts.length - 1][0] || ''}`.toUpperCase();
     }
 
+    function normalizeIdentityKey(value) {
+      return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    function normalizePillTeam(team) {
+      const key = String(team || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      if (key === 'client_services' || key === 'campaign_manager' || key === 'campaign_managers') return 'client_services';
+      if (key === 'sales' || key === 'account_manager' || key === 'account_managers') return 'sales';
+      if (key === 'editorial' || key === 'content_creator' || key === 'content_creators') return 'editorial';
+      return '';
+    }
+
+    function pillTeamFromRole(roleKey) {
+      const key = String(roleKey || '').trim().toLowerCase();
+      if (key === 'cm' || key === 'head_ops') return 'client_services';
+      if (key === 'am' || key === 'head_sales') return 'sales';
+      if (key === 'cc' || key === 'ccs') return 'editorial';
+      return '';
+    }
+
+    function resolvePillTeam(options = {}) {
+      const explicitTeam = normalizePillTeam(options?.team);
+      if (explicitTeam) return explicitTeam;
+      const roleTeam = pillTeamFromRole(options?.roleKey);
+      if (roleTeam) return roleTeam;
+      const userId = String(options?.userId || '').trim();
+      if (userId) {
+        const userById = usersById[userId];
+        const teamById = normalizePillTeam(userById?.primary_team || '');
+        if (teamById) return teamById;
+      }
+      const nameKey = normalizeIdentityKey(options?.fullName || '');
+      if (nameKey) {
+        const userByName = usersByName[nameKey];
+        const teamByName = normalizePillTeam(userByName?.primary_team || '');
+        if (teamByName) return teamByName;
+      }
+      return 'client_services';
+    }
+
     function stepStateFromItem(item) {
       const explicit = item?.step?.status || item?.step?.step_state;
       if (explicit) return normalizeStatusValue(explicit);
@@ -5297,9 +5400,16 @@ __NAV_CONTROLS__
       return 'in_progress';
     }
 
-    function userPill(initials, owner = false, fullName = null) {
-      const cls = owner ? 'user-pill owner' : 'user-pill';
+    function userPill(initials, owner = false, fullName = null, options = {}) {
       const label = String(fullName || '').trim();
+      const team = resolvePillTeam({
+        team: options?.team,
+        roleKey: options?.roleKey,
+        userId: options?.userId,
+        fullName: label,
+      });
+      const teamClass = team ? `team-${team}` : 'team-client-services';
+      const cls = owner ? `user-pill ${teamClass} owner` : `user-pill ${teamClass}`;
       const safeLabel = label ? label.replace(/"/g, '&quot;') : '';
       const tooltipAttr = safeLabel ? ` title="${safeLabel}" aria-label="${safeLabel}"` : '';
       return `<span class='${cls}'${tooltipAttr}>${initials || '--'}</span>`;
@@ -5346,6 +5456,314 @@ __NAV_CONTROLS__
           `).join('')}
         </div>
       `;
+    }
+
+    function roleShortLabel(roleKey) {
+      const key = String(roleKey || '').toLowerCase().trim();
+      if (key === 'ccs') return 'CC Support';
+      if (key === 'head_ops') return 'Head Ops';
+      if (!key) return '-';
+      return key.toUpperCase();
+    }
+
+    function hoursLabel(hours) {
+      const n = Number(hours);
+      const safe = Number.isFinite(n) ? Math.max(0, n) : 0;
+      const txt = safe.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+      return `${txt} hr`;
+    }
+
+    function roleHoursLabel(roleKey, hours) {
+      return `${roleShortLabel(roleKey)} - ${hoursLabel(hours)}`;
+    }
+
+    function campaignAssignmentsByRoleForPanel(payload = {}) {
+      const assigned = Array.isArray(payload?.campaign?.assigned_users) ? payload.campaign.assigned_users : [];
+      const byRole = {};
+      for (const a of assigned) {
+        const role = String(a?.role || '').toLowerCase().trim();
+        if (!role) continue;
+        byRole[role] = a;
+      }
+      return byRole;
+    }
+
+    function panelTeamUserByRole(roleKey, byRole = {}, preferredUserId = '') {
+      const normalizedRole = String(roleKey || '').toLowerCase().trim();
+      const preferredId = String(preferredUserId || '').trim();
+      if (preferredId) {
+        const preferredName = userName(preferredId);
+        return {
+          assigned: !!preferredName && preferredName !== '-',
+          userId: preferredId,
+          name: panelDetailValueText(preferredName, '-'),
+          initials: initialsFromName(preferredName || ''),
+          roleKey: normalizedRole,
+        };
+      }
+      const entry = byRole[normalizedRole] || null;
+      const userId = String(entry?.user_id || '').trim();
+      const name = panelDetailValueText(entry?.name || (userId ? userName(userId) : ''), '-');
+      const initials = String(entry?.initials || initialsFromName(name || '') || '--').trim() || '--';
+      return {
+        assigned: !!entry?.user_id,
+        userId: userId || '',
+        name,
+        initials,
+        roleKey: normalizedRole,
+      };
+    }
+
+    function panelTeamUserHtml(user = {}) {
+      if (!user?.assigned) return "<span class='tag warn'>Unassigned</span>";
+      const isOwner = !!user?.isOwner;
+      return `${userPill(user?.initials || '--', isOwner, user?.name || null, { userId: user?.userId || '', roleKey: user?.roleKey || '' })}<span>${escapeHtml(panelDetailValueText(user?.name, '-'))}</span>`;
+    }
+
+    function panelTeamRoleEditorHtml(options = {}) {
+      const roleKey = String(options?.roleKey || '').toLowerCase().trim();
+      const dropdownId = String(options?.dropdownId || '').trim();
+      const hiddenId = String(options?.hiddenId || '').trim();
+      const campaignId = String(options?.campaignId || '').trim();
+      const currentUserId = String(options?.currentUserId || '').trim();
+      if (!roleKey || !dropdownId || !hiddenId || !campaignId) {
+        return panelTeamUserHtml({
+          assigned: !!currentUserId,
+          name: options?.currentName || '-',
+          initials: options?.currentInitials || '--',
+        });
+      }
+      const users = usersForAssignmentSlot(roleKey)
+        .map(u => ({ id: u.id, name: u.name, initials: (u.initials || initialsFromName(u.name || '')) }));
+      return `
+        <input type='hidden' id='${hiddenId}' data-campaign-assign-hidden='1' data-role-key='${roleKey}' value='${currentUserId}' />
+        ${ownerPillDropdown({
+          id: dropdownId,
+          currentUserId,
+          users,
+          objectType: 'campaign_assignment',
+          objectId: campaignId,
+          context: 'panel',
+          hiddenInputId: hiddenId,
+          roleKey,
+          ariaLabel: `${roleShortLabel(roleKey)} assignment`,
+        })}
+      `;
+    }
+
+    function usersForRoleEditor(roleKey = '') {
+      const role = String(roleKey || '').toLowerCase().trim();
+      const teamScoped = usersForAssignmentSlot(role);
+      if (Array.isArray(teamScoped) && teamScoped.length) return teamScoped;
+      return Array.isArray(usersDirectory) ? usersDirectory : [];
+    }
+
+    function objectPanelTeamSectionHtml(rows = []) {
+      const safeRows = (Array.isArray(rows) ? rows : [])
+        .filter(row => String(row?.label || '').trim() && String(row?.valueHtml || '').trim());
+      if (!safeRows.length) return '';
+      return `
+        <div class='module-fields module-body object-panel-team-module'>
+          <div class='panel-details-title'>Team</div>
+          <div class='panel-details-grid'>
+            ${safeRows.map(row => `
+              <div class='panel-details-row'>
+                <div class='panel-details-label'>${escapeHtml(String(row.label || ''))}</div>
+                <div class='panel-details-value'>${row.valueHtml}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function stageHoursByRole(payload = {}) {
+      const steps = Array.isArray(payload?.stage_steps)
+        ? payload.stage_steps
+        : (Array.isArray(payload?.stage?.steps) ? payload.stage.steps : []);
+      const totals = {};
+      for (const step of steps) {
+        const allocations = Array.isArray(step?.effort_allocations) ? step.effort_allocations : [];
+        for (const effort of allocations) {
+          const role = String(effort?.role || '').toLowerCase().trim();
+          if (!role) continue;
+          const hours = Number(effort?.hours || 0);
+          if (!Number.isFinite(hours)) continue;
+          totals[role] = Number(totals[role] || 0) + hours;
+        }
+      }
+      return totals;
+    }
+
+    function stepHoursByRole(step = {}) {
+      const totals = {};
+      const allocations = Array.isArray(step?.effort_allocations) ? step.effort_allocations : [];
+      for (const effort of allocations) {
+        const role = String(effort?.role || '').toLowerCase().trim();
+        if (!role) continue;
+        const hours = Number(effort?.hours || 0);
+        if (!Number.isFinite(hours)) continue;
+        totals[role] = Number(totals[role] || 0) + hours;
+      }
+      return totals;
+    }
+
+    function stepRoleUserFromEfforts(step = {}, roleKey = '') {
+      const role = String(roleKey || '').toLowerCase().trim();
+      if (!role) return '';
+      const allocations = Array.isArray(step?.effort_allocations) ? step.effort_allocations : [];
+      const match = allocations.find(e => String(e?.role || '').toLowerCase().trim() === role && String(e?.assigned_user_id || '').trim());
+      return String(match?.assigned_user_id || '').trim();
+    }
+
+    function objectPanelTeamRows(payload = {}) {
+      const type = String(payload?.module_type || '').toLowerCase().trim();
+      const byRole = campaignAssignmentsByRoleForPanel(payload);
+      const objectId = String(
+        payload?.campaign?.id
+        || payload?.campaign?.campaign_id
+        || payload?.stage?.id
+        || payload?.stage?.display_id
+        || payload?.step?.id
+        || ''
+      ).trim();
+      const campaignId = String(
+        payload?.campaign?.id
+        || payload?.campaign?.campaign_id
+        || payload?.stage?.campaign_id
+        || payload?.step?.campaign_id
+        || ''
+      ).trim();
+      const editMode = !!(objectId && isModuleEditing(type, objectId));
+      const canEditRoleAssignments = (type === 'campaign' || type === 'stage')
+        && editMode
+        && canUseControl('manage_campaign_assignments', currentRole)
+        && !!campaignId;
+      if (type === 'scope') {
+        const am = payload?.scope?.am_user || {};
+        const amName = panelDetailValueText(am?.name || payload?.scope?.am_name || '', '-');
+        const amInitials = String(am?.initials || payload?.scope?.am_initials || initialsFromName(amName || '') || '--').trim() || '--';
+        const assigned = !!String(am?.user_id || '').trim() || amName !== '-';
+        return [
+          {
+            label: 'AM',
+            valueHtml: panelTeamUserHtml({ assigned, name: amName, initials: amInitials, userId: am?.user_id || '', roleKey: 'am', isOwner: true }),
+          },
+        ];
+      }
+      if (type === 'campaign') {
+        const roleOrder = ['cc', 'ccs', 'cm', 'am'];
+        return roleOrder
+          .filter(role => canEditRoleAssignments || role !== 'ccs' || !!byRole.ccs?.user_id)
+          .map(role => {
+            const user = panelTeamUserByRole(role, byRole);
+            const valueHtml = canEditRoleAssignments
+              ? panelTeamRoleEditorHtml({
+                  roleKey: role,
+                  campaignId,
+                  currentUserId: user?.userId || '',
+                  currentName: user?.name || '-',
+                  currentInitials: user?.initials || '--',
+                  hiddenId: `panelTeamAssign_${type}_${objectId || campaignId}_${role}`,
+                  dropdownId: `panelTeamAssignDrop_${type}_${objectId || campaignId}_${role}`,
+                })
+              : panelTeamUserHtml(user);
+            return {
+              label: roleShortLabel(role),
+              valueHtml,
+            };
+          });
+      }
+      if (type === 'stage') {
+        const roleOrder = ['cc', 'ccs', 'cm', 'am'];
+        const hours = stageHoursByRole(payload);
+        return roleOrder
+          .filter(role => canEditRoleAssignments || role !== 'ccs' || !!byRole.ccs?.user_id)
+          .map(role => {
+            const user = panelTeamUserByRole(role, byRole);
+            const valueHtml = canEditRoleAssignments
+              ? panelTeamRoleEditorHtml({
+                  roleKey: role,
+                  campaignId,
+                  currentUserId: user?.userId || '',
+                  currentName: user?.name || '-',
+                  currentInitials: user?.initials || '--',
+                  hiddenId: `panelTeamAssign_${type}_${objectId || campaignId}_${role}`,
+                  dropdownId: `panelTeamAssignDrop_${type}_${objectId || campaignId}_${role}`,
+                })
+              : panelTeamUserHtml(user);
+            return {
+              label: roleHoursLabel(role, hours[role] || 0),
+              valueHtml,
+            };
+          });
+      }
+      if (type === 'step') {
+        const step = payload?.step || {};
+        const ownerRole = String(step?.owner_role || '').toLowerCase().trim();
+        const hoursByRole = stepHoursByRole(step);
+        const stepId = String(step?.id || objectId || '').trim();
+        const canEditStepOwner = editMode && canUseControl('manage_step', currentRole) && !!stepId;
+        const canEditStepRoleAssignments = editMode
+          && (canUseControl('manage_campaign_assignments', currentRole) || canUseControl('manage_step', currentRole))
+          && !!campaignId;
+        const ownerUser = panelTeamUserByRole(
+          ownerRole,
+          byRole,
+          String(step?.next_owner_user_id || '').trim() || stepRoleUserFromEfforts(step, ownerRole),
+        );
+        const ownerUsers = usersForRoleEditor(ownerRole)
+          .map(u => ({ id: u.id, name: u.name, initials: (u.initials || initialsFromName(u.name || '')) }));
+        const ownerHiddenId = `panelStepOwner_${stepId || 'step'}`;
+        const ownerValueHtml = canEditStepOwner
+          ? `
+            <input type='hidden' id='${ownerHiddenId}' data-owner-hidden='1' value='${ownerUser?.userId || ''}' />
+            ${ownerPillDropdown({
+              id: `panelTeamStepOwnerDrop_${stepId || 'step'}`,
+              currentUserId: ownerUser?.userId || '',
+              users: ownerUsers,
+              objectType: 'step',
+              objectId: stepId,
+              context: 'panel',
+              hiddenInputId: ownerHiddenId,
+              roleKey: ownerRole || '',
+              ariaLabel: 'Step owner assignment',
+            })}
+          `
+          : panelTeamUserHtml({ ...ownerUser, isOwner: true });
+        const rows = [{
+          label: `Owner - ${hoursLabel(hoursByRole[ownerRole] || 0)}`,
+          valueHtml: ownerValueHtml,
+        }];
+        const extraRoles = Object.keys(hoursByRole)
+          .filter(role => role && role !== ownerRole && Number(hoursByRole[role] || 0) > 0)
+          .sort();
+        for (const role of extraRoles) {
+          const preferredUserId = stepRoleUserFromEfforts(step, role);
+          const user = panelTeamUserByRole(role, byRole, preferredUserId);
+          const valueHtml = canEditStepRoleAssignments
+            ? panelTeamRoleEditorHtml({
+                roleKey: role,
+                campaignId,
+                currentUserId: user?.userId || '',
+                currentName: user?.name || '-',
+                currentInitials: user?.initials || '--',
+                hiddenId: `panelTeamAssign_${type}_${stepId || campaignId}_${role}`,
+                dropdownId: `panelTeamAssignDrop_${type}_${stepId || campaignId}_${role}`,
+              })
+            : panelTeamUserHtml({ ...user, isOwner: false });
+          rows.push({
+            label: roleHoursLabel(role, hoursByRole[role] || 0),
+            valueHtml,
+          });
+        }
+        return rows;
+      }
+      return [];
+    }
+
+    function objectPanelTeamHtml(payload = {}) {
+      return objectPanelTeamSectionHtml(objectPanelTeamRows(payload));
     }
 
     function stepModuleCard(item, opts = {}) {
@@ -5430,7 +5848,7 @@ __NAV_CONTROLS__
         `<span class='summary-pill-slot slot-health' data-slot='health'>${healthChip(health)}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_start' data-slot='timeframe_start'>${start !== '-' ? `${start} →` : ''}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_end' data-slot='timeframe_end'>${due}</span>`,
-        `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName)}</span>`,
+        `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: step.next_owner_user_id || '' })}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-stage' data-slot='stage'>${String(step.stage || step.stage_name || '').replace(/_/g, ' ')}</span>`,
         `<span class='module-summary-right summary-slot slot-campaign_id' data-slot='campaign_id'>${campaignSummaryId}</span>`,
       ].filter(Boolean).join('');
@@ -5477,7 +5895,7 @@ __NAV_CONTROLS__
             ariaLabel: `Owner for ${step.name || "step"}`,
           })}
         `
-        : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName)}<span>${escapeHtml(panelDetailValueText(ownerName, '-'))}</span>`;
+        : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: step.next_owner_user_id || '' })}<span>${escapeHtml(panelDetailValueText(ownerName, '-'))}</span>`;
       const panelTimeframeControl = (canEditStepDates && editMode)
         ? `
           <input id='${stepStartId}' type='date' value='${(step.current_start || '').slice(0, 10)}' />
@@ -5538,7 +5956,7 @@ __NAV_CONTROLS__
             ` : ''}
             ${(cardSlotEnabled('step', 'owner') || cardSlotEnabled('step', 'step_id')) ? `
             <div class='module-row'>
-              ${cardSlotEnabled('step', 'owner') ? `<span>Owner:</span>${canEditOwner ? ownerControl : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName)} <span>${ownerName}</span>`}` : ''}
+              ${cardSlotEnabled('step', 'owner') ? `<span>Owner:</span>${canEditOwner ? ownerControl : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: step.next_owner_user_id || '' })} <span>${ownerName}</span>`}` : ''}
               ${cardSlotEnabled('step', 'step_id') ? `<span>Step ID:</span><span><code>${stepId}</code></span>` : ''}
             </div>
             ` : ''}
@@ -5578,19 +5996,54 @@ __NAV_CONTROLS__
       return 'not_started';
     }
 
-    function deriveStageTimeframe(steps) {
+    function stepWindowStart(step) {
+      return (
+        step?.current_start
+        || step?.timeframe_start
+        || step?.sow_start_date
+        || step?.start_date
+        || step?.current_due
+        || step?.timeframe_due
+        || step?.sow_end_date
+        || step?.due_date
+        || null
+      );
+    }
+
+    function stepWindowEnd(step) {
+      return (
+        step?.current_due
+        || step?.timeframe_due
+        || step?.sow_end_date
+        || step?.due_date
+        || step?.current_start
+        || step?.timeframe_start
+        || step?.sow_start_date
+        || step?.start_date
+        || null
+      );
+    }
+
+    function deriveStageWindowBounds(steps) {
       const arr = Array.isArray(steps) ? steps : [];
-      const starts = arr.map(s => s?.current_start).filter(Boolean).sort();
-      const dues = arr.map(s => s?.current_due).filter(Boolean).sort();
-      const start = starts.length ? niceDate(starts[0]) : '-';
-      const due = dues.length ? niceDate(dues[dues.length - 1]) : '-';
+      const starts = arr.map(s => stepWindowStart(s)).filter(Boolean).sort();
+      const ends = arr.map(s => stepWindowEnd(s)).filter(Boolean).sort();
+      return {
+        start: starts.length ? starts[0] : null,
+        end: ends.length ? ends[ends.length - 1] : null,
+      };
+    }
+
+    function deriveStageTimeframe(steps) {
+      const bounds = deriveStageWindowBounds(steps);
+      const start = bounds.start ? niceDate(bounds.start) : '-';
+      const due = bounds.end ? niceDate(bounds.end) : '-';
       return `${start} → ${due}`;
     }
 
     function deriveStageDue(steps) {
-      const arr = Array.isArray(steps) ? steps : [];
-      const dues = arr.map(s => s?.current_due).filter(Boolean).sort();
-      return dues.length ? niceDate(dues[dues.length - 1]) : '-';
+      const bounds = deriveStageWindowBounds(steps);
+      return bounds.end ? niceDate(bounds.end) : '-';
     }
 
     function deriveCampaignStageProgress(campaign) {
@@ -5632,8 +6085,13 @@ __NAV_CONTROLS__
       const stageSteps = Array.isArray(s.steps) ? s.steps : [];
       const status = s.status || deriveStageStatus(stageSteps);
       const health = s.health || deriveStageHealth(stageSteps);
-      const timeframe = s.timeframe || deriveStageTimeframe(stageSteps);
-      const dueOnly = s.due || deriveStageDue(stageSteps);
+      const explicitStart = s.timeframe_start || s.current_start || s.baseline_start || null;
+      const explicitDue = s.timeframe_due || s.current_due || s.baseline_due || null;
+      const explicitTimeframe = (explicitStart || explicitDue)
+        ? `${explicitStart ? niceDate(explicitStart) : '-'} → ${explicitDue ? niceDate(explicitDue) : '-'}`
+        : '';
+      const timeframe = s.timeframe || explicitTimeframe || deriveStageTimeframe(stageSteps);
+      const dueOnly = s.due || (explicitDue ? niceDate(explicitDue) : '') || deriveStageDue(stageSteps);
       const summaryCampaignId = s.campaign_id || s.campaign?.id || '-';
       const summaryParts = [
         `<span class='summary-pill-slot slot-status' data-slot='status'>${statusChip(status)}</span>`,
@@ -5759,10 +6217,10 @@ __NAV_CONTROLS__
       const campaignOwner = assignedByRole.cm || null;
       const campaignOwnerInitials = campaignOwner?.initials || initialsFromName(campaignOwner?.name || '');
       const campaignOwnerSummary = campaignOwner
-        ? userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null)
+        ? userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null, { userId: campaignOwner.user_id || campaignOwner.id || '', roleKey: 'cm' })
         : `<span class='tag warn'>Unassigned</span>`;
       const campaignOwnerDetail = campaignOwner
-        ? `${userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null)} <span>${campaignOwner.name || '-'}</span>`
+        ? `${userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null, { userId: campaignOwner.user_id || campaignOwner.id || '', roleKey: 'cm' })} <span>${campaignOwner.name || '-'}</span>`
         : `<span class='tag warn'>Unassigned</span>`;
       const assignmentControl = (roleKey, label) => {
         const current = assignedByRole[roleKey] || {};
@@ -5771,7 +6229,7 @@ __NAV_CONTROLS__
           .map(u => ({ id: u.id, name: u.name, initials: (u.initials || initialsFromName(u.name || '')) }));
         if (!canManageCampaignAssignments) {
           const initials = current.initials || initialsFromName(current.name || '');
-          return `<div><span class='tag neutral'>${label || roleLabel[roleKey]}</span> ${userPill(initials || '--', true, current.name || null)}</div>`;
+          return `<div><span class='tag neutral'>${label || roleLabel[roleKey]}</span> ${userPill(initials || '--', true, current.name || null, { userId: current.user_id || current.id || '', roleKey })}</div>`;
         }
         return `
           <div>
@@ -5931,7 +6389,7 @@ __NAV_CONTROLS__
           })}
         `
         : (campaignOwner
-          ? `${userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null)}<span>${escapeHtml(panelDetailValueText(campaignOwner.name || '-', '-'))}</span>`
+          ? `${userPill(campaignOwnerInitials || '--', true, campaignOwner.name || null, { userId: campaignOwner.user_id || campaignOwner.id || '', roleKey: 'cm' })}<span>${escapeHtml(panelDetailValueText(campaignOwner.name || '-', '-'))}</span>`
           : `<span class='tag warn'>Unassigned</span>`);
       const panelCampaignTimeframeControl = (canManageCampaignDates && editMode)
         ? `<input id='${campaignStartId}' type='date' value='${(c.timeframe_start || '').slice(0, 10)}' /><span>to</span><input id='${campaignEndId}' type='date' value='${(c.timeframe_due || '').slice(0, 10)}' />`
@@ -6054,7 +6512,7 @@ __NAV_CONTROLS__
             ariaLabel: `Owner for ${d.title || "deliverable"}`,
           })}
         `
-        : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName)} <span>${ownerName}</span>`);
+        : `${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: d.owner_user_id || '' })} <span>${ownerName}</span>`);
       const dueControl = opts.dueControlHtml
         ? `<div class='module-row span-2'><span>Due date:</span>${opts.dueControlHtml}</div>`
         : '';
@@ -6073,7 +6531,7 @@ __NAV_CONTROLS__
         `<span class='summary-pill-slot slot-status' data-slot='status'>${statusChip(d.status || 'not_started')}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_start' data-slot='timeframe_start'>${start !== '-' ? `${start} →` : ''}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_end' data-slot='timeframe_end'>${due}</span>`,
-        `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName)}</span>`,
+        `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: d.owner_user_id || '' })}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-stage' data-slot='stage'>${stageLabel}</span>`,
         `<span class='module-summary-right summary-slot slot-campaign_id' data-slot='campaign_id'>${campaignSummaryId}</span>`,
       ].join('');
@@ -7170,7 +7628,13 @@ Cancel = Abort`
       const data = await api('/api/users');
       usersDirectory = data.items || [];
       usersById = {};
-      for (const user of usersDirectory) usersById[user.id] = user;
+      usersByName = {};
+      for (const user of usersDirectory) {
+        const userId = String(user?.id || '').trim();
+        if (userId) usersById[userId] = user;
+        const nameKey = normalizeIdentityKey(user?.name || user?.full_name || '');
+        if (nameKey && !usersByName[nameKey]) usersByName[nameKey] = user;
+      }
       populateViewAsUsers();
     }
 
@@ -7498,7 +7962,7 @@ Cancel = Abort`
       const panelDetailsHtml = panelMode
         ? panelDetailsSection([
             { label: 'Client', valueHtml: `<span>${escapeHtml(panelDetailValueText(s.client_name || '-', '-'))}</span>` },
-            { label: 'AM (Owner)', valueHtml: `${userPill(amInitials || '--', true, am.name || null)}<span>${escapeHtml(panelDetailValueText(am.name || '-', '-'))}</span>` },
+            { label: 'AM (Owner)', valueHtml: `${userPill(amInitials || '--', true, am.name || null, { userId: am.user_id || s.am_user_id || '', roleKey: 'am' })}<span>${escapeHtml(panelDetailValueText(am.name || '-', '-'))}</span>` },
             { label: 'Contact', valueHtml: contactHtml },
             { label: 'Timeframe', valueHtml: `<span>${escapeHtml(panelTimeframeText(s.sow_start_date, s.sow_end_date))}</span>` },
             { label: 'Status', valueHtml: statusChip(statusNormalized) },
@@ -7548,7 +8012,7 @@ Cancel = Abort`
             </div>` : ''}
             ${(showAmOwner || showClientContact) ? `
             <div class='module-row'>
-              ${showAmOwner ? `<span>AM:</span>${userPill(amInitials || '--', true, am.name || null)}<span>${am.name || '-'}</span>` : ''}
+              ${showAmOwner ? `<span>AM:</span>${userPill(amInitials || '--', true, am.name || null, { userId: am.user_id || s.am_user_id || '', roleKey: 'am' })}<span>${am.name || '-'}</span>` : ''}
               ${showClientContact ? `<span>Client contact:</span><span>${s.client_contact_name || '-'}</span>` : ''}
             </div>` : ''}
             ${showProducts ? `<div class='module-row span-2'><span>Products:</span><span>${productsText}</span></div>` : ''}
@@ -7621,6 +8085,11 @@ Cancel = Abort`
       const stageKey = (value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
       return (campaignItems || []).map(campaign => {
         const ws = workspaceMap[campaign.id] || {};
+        const campaignAssignedUsers = Array.isArray(campaign?.assigned_users) ? campaign.assigned_users : [];
+        const campaignOwner = campaignAssignedUsers.find(u => String(u?.role || '').toLowerCase().trim() === 'cm') || null;
+        const campaignOwnerName = String(campaignOwner?.name || '').trim();
+        const campaignOwnerInitials = String(campaignOwner?.initials || initialsFromName(campaignOwnerName || '') || '--').trim() || '--';
+        const campaignOwnerUserId = String(campaignOwner?.user_id || campaignOwner?.id || '').trim();
         const stages = Array.isArray(ws.stages) ? ws.stages : [];
         const deliverables = Array.isArray(ws.deliverables?.items) ? ws.deliverables.items : [];
         const steps = Array.isArray(ws.workflow_steps?.items) ? ws.workflow_steps.items : [];
@@ -7640,6 +8109,7 @@ Cancel = Abort`
           if (!stageSteps.length) {
             return null;
           }
+          const stageWindow = deriveStageWindowBounds(stageSteps);
           return {
             row_key: rowKeyFor('stage', stage.id),
             module_type: 'stage',
@@ -7647,8 +8117,11 @@ Cancel = Abort`
             title: stage.name || 'Stage',
             status: normalizeStatusValue(stage.status || deriveStageStatus(stageSteps)),
             health: String(stage.health || deriveStageHealth(stageSteps) || 'not_started').toLowerCase(),
+            timeframe_start: stage?.current_start || stage?.baseline_start || stageWindow.start || null,
+            timeframe_due: stage?.current_due || stage?.baseline_due || stageWindow.end || null,
             owner_initials: '--',
             owner_name: '',
+            owner_user_id: '',
             participants: [],
             campaign_id: campaign.id,
             context_id: campaign.id,
@@ -7660,9 +8133,12 @@ Cancel = Abort`
               title: step.name || step.id || 'Step',
               status: normalizeStatusValue(step.status || step.step_state || 'not_started'),
               health: String(step.health || 'not_started').toLowerCase(),
+              timeframe_start: step?.current_start || step?.timeframe_start || null,
+              timeframe_due: step?.current_due || step?.timeframe_due || null,
               owner_initials: step.owner_initials || '--',
               owner_name: step.owner_name || step.owner_user_name || '',
-              participants: [{ initials: step.owner_initials || '--', name: step.owner_name || step.owner_user_name || '' }],
+              owner_user_id: step.next_owner_user_id || '',
+              participants: [{ id: step.next_owner_user_id || '', initials: step.owner_initials || '--', name: step.owner_name || step.owner_user_name || '' }],
               campaign_id: campaign.id,
               context_id: campaign.id,
               progress_statuses: [],
@@ -7678,9 +8154,12 @@ Cancel = Abort`
           status: normalizeStatusValue(deliverable.status || 'not_started'),
           delivery_status: String(deliverable.delivery_status || deliverableRawStatusFromGlobal(deliverable.status || 'not_started')).toLowerCase(),
           health: '',
+          timeframe_start: deliverable?.current_start || deliverable?.timeframe_start || null,
+          timeframe_due: deliverable?.current_due || deliverable?.timeframe_due || null,
           owner_initials: deliverable.owner_initials || '--',
           owner_name: deliverable.owner_name || '',
-          participants: [{ initials: deliverable.owner_initials || '--', name: deliverable.owner_name || '' }],
+          owner_user_id: deliverable.owner_user_id || '',
+          participants: [{ id: deliverable.owner_user_id || '', initials: deliverable.owner_initials || '--', name: deliverable.owner_name || '' }],
           campaign_id: campaign.id,
           context_id: campaign.id,
           progress_statuses: [],
@@ -7693,9 +8172,12 @@ Cancel = Abort`
           title: campaign.title || campaign.id || 'Campaign',
           status: normalizeStatusValue(campaign.status || 'not_started'),
           health: String(campaign.health || campaign.campaign_health || 'not_started').toLowerCase(),
-          owner_initials: campaign.owner_initials || '--',
-          owner_name: campaign.owner_name || '',
-          participants: (campaign.assigned_users || []).map(u => ({ initials: u.initials || '--', name: u.name || '' })),
+          timeframe_start: campaign?.timeframe_start || ws?.campaign?.timeframe_start || null,
+          timeframe_due: campaign?.timeframe_due || ws?.campaign?.timeframe_due || null,
+          owner_initials: campaignOwnerInitials,
+          owner_name: campaignOwnerName,
+          owner_user_id: campaignOwnerUserId,
+          participants: campaignAssignedUsers.map(u => ({ id: u.user_id || u.id || '', role: u.role || '', initials: u.initials || '--', name: u.name || '' })),
           scope_id: campaign.scope_id || '',
           context_id: campaign.scope_id || '',
           progress_statuses: stages.map(s => normalizeStatusValue(s.status || 'not_started')),
@@ -8312,15 +8794,15 @@ Cancel = Abort`
         const stageSteps = stageGroups[key] || [];
         const persisted = persistedStages.find(st => String(st?.name || '').toLowerCase() === key) || null;
         const starts = stageSteps
-          .map(s => parseGanttDate(s.current_start) || parseGanttDate(s.current_due))
+          .map(s => parseGanttDate(stepWindowStart(s)))
           .filter(Boolean)
           .sort((a, b) => a - b);
         const ends = stageSteps
-          .map(s => parseGanttDate(s.current_due) || parseGanttDate(s.current_start))
+          .map(s => parseGanttDate(stepWindowEnd(s)))
           .filter(Boolean)
           .sort((a, b) => a - b);
-        const start = parseGanttDate(persisted?.current_start || persisted?.baseline_start) || starts[0] || campaignStart || campaignEnd;
-        const end = parseGanttDate(persisted?.current_due || persisted?.baseline_due) || ends[ends.length - 1] || start;
+        const start = starts[0] || parseGanttDate(persisted?.current_start || persisted?.baseline_start) || campaignStart || campaignEnd;
+        const end = ends[ends.length - 1] || parseGanttDate(persisted?.current_due || persisted?.baseline_due) || start;
         if (!start && !end) continue;
         rows.push({
           kind: 'stage',
@@ -8437,7 +8919,7 @@ Cancel = Abort`
       const statusClass = ganttStatusDotClass(row?.step?.status);
       const owner = String(row?.step?.owner_initials || '--').trim() || '--';
       const ownerName = String(row?.step?.owner_name || row?.step?.owner_user_name || '').trim() || null;
-      return `<span class='gantt-step-suffix'><span class='gantt-status-dot ${statusClass}' aria-hidden='true'></span><span class='gantt-owner-pill'>${userPill(owner, false, ownerName)}</span></span>`;
+      return `<span class='gantt-step-suffix'><span class='gantt-status-dot ${statusClass}' aria-hidden='true'></span><span class='gantt-owner-pill'>${userPill(owner, false, ownerName, { userId: row?.step?.next_owner_user_id || '' })}</span></span>`;
     }
 
     function updateGanttBarOverflowLabels() {
@@ -10420,8 +10902,11 @@ Cancel = Abort`
 
     function objectPanelCanSave(meta = {}) {
       const type = String(meta.type || '').toLowerCase();
-      if (type === 'scope' || type === 'stage') {
+      if (type === 'scope') {
         return true;
+      }
+      if (type === 'stage') {
+        return canUseControl('manage_campaign_assignments', currentRole);
       }
       if (type === 'campaign') {
         return canUseControl('manage_campaign_assignments', currentRole) || canUseControl('manage_campaign_dates', currentRole);
@@ -10434,7 +10919,8 @@ Cancel = Abort`
       if (type === 'step') {
         return canUseControl('manage_step', currentRole)
           || canUseControl('manage_step_dates', currentRole)
-          || canUseControl('override_step_due', currentRole);
+          || canUseControl('override_step_due', currentRole)
+          || canUseControl('manage_campaign_assignments', currentRole);
       }
       return false;
     }
@@ -10518,11 +11004,17 @@ Cancel = Abort`
       const saveBtn = document.getElementById('objectPanelSaveBtn');
       if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true;
       try {
-        if (type === 'campaign') {
+        if (type === 'campaign' || type === 'stage') {
+          const targetCampaignId = String(
+            panelPayload?.campaign?.id
+            || panelPayload?.campaign?.campaign_id
+            || panelPayload?.stage?.campaign_id
+            || ''
+          ).trim();
           if (canUseControl('manage_campaign_assignments', currentRole)) {
             const panelBody = document.getElementById('objectPanelBody');
             const hasAssignmentInputs = !!panelBody?.querySelector("input[data-campaign-assign-hidden='1']");
-            if (hasAssignmentInputs) {
+            if (hasAssignmentInputs && targetCampaignId) {
               const assignmentPayload = objectPanelCampaignAssignmentPayload();
               const previousByRole = campaignAssignmentsByRoleFromUsers(panelPayload?.campaign?.assigned_users || []);
               const changedSlots = detectCampaignAssignmentChanges(previousByRole, assignmentPayload);
@@ -10543,13 +11035,13 @@ Cancel = Abort`
                   if (!saveWithoutCascade) return;
                 }
               }
-              await api(`/api/campaigns/${encodeURIComponent(objectId)}/assignments`, {
+              await api(`/api/campaigns/${encodeURIComponent(targetCampaignId)}/assignments`, {
                 method: 'PATCH',
                 body: JSON.stringify(assignmentPayload),
               });
             }
           }
-          if (canUseControl('manage_campaign_dates', currentRole)) {
+          if (type === 'campaign' && canUseControl('manage_campaign_dates', currentRole)) {
             const startId = `panelCampaignStart_${objectId}`;
             const endId = `panelCampaignEnd_${objectId}`;
             const startRaw = (document.getElementById(startId)?.value || '').trim();
@@ -10637,6 +11129,42 @@ Cancel = Abort`
               method: 'PATCH',
               body: JSON.stringify(payload),
             });
+          }
+          if (canUseControl('manage_campaign_assignments', currentRole) || canUseControl('manage_step', currentRole)) {
+            const targetCampaignId = String(
+              panelPayload?.campaign?.id
+              || panelPayload?.campaign?.campaign_id
+              || panelPayload?.step?.campaign_id
+              || ''
+            ).trim();
+            const panelBody = document.getElementById('objectPanelBody');
+            const hasAssignmentInputs = !!panelBody?.querySelector("input[data-campaign-assign-hidden='1']");
+            if (targetCampaignId && hasAssignmentInputs) {
+              const assignmentPayload = objectPanelCampaignAssignmentPayload();
+              const previousByRole = campaignAssignmentsByRoleFromUsers(panelPayload?.campaign?.assigned_users || []);
+              const changedSlots = detectCampaignAssignmentChanges(previousByRole, assignmentPayload);
+              assignmentPayload.cascade_owner_updates = false;
+              if (changedSlots.length) {
+                const summary = changedSlots.map(s => `${s.label}: ${s.oldName} -> ${s.newName}`).join('\\n');
+                const cascadeYes = window.confirm(
+                  `Assignment changes:\n${summary}\n\nAlso update deliverable/step owners for matching role records currently owned by the previous assignee?\n\nOK = Yes (cascade)\nCancel = No/Cancel`
+                );
+                if (cascadeYes) {
+                  assignmentPayload.cascade_owner_updates = true;
+                } else {
+                  const saveWithoutCascade = window.confirm(
+                    'Save assignment changes without updating deliverable/step owners?\\n\\n'
+                    + 'OK = Save without cascade\\n'
+                    + 'Cancel = Abort save'
+                  );
+                  if (!saveWithoutCascade) return;
+                }
+              }
+              await api(`/api/campaigns/${encodeURIComponent(targetCampaignId)}/assignments`, {
+                method: 'PATCH',
+                body: JSON.stringify(assignmentPayload),
+              });
+            }
           }
         }
 
@@ -10790,11 +11318,12 @@ Cancel = Abort`
       return fields ? fields.outerHTML : html;
     }
 
-    function panelBodyModulesHtml(baseHtml = '', childrenModulesHtml = '') {
+    function panelBodyModulesHtml(baseHtml = '', teamModulesHtml = '', childrenModulesHtml = '') {
       const bodyHtml = String(baseHtml || '').trim();
+      const teamModules = String(teamModulesHtml || '').trim();
       const childModules = String(childrenModulesHtml || '').trim();
-      if (!bodyHtml && !childModules) return '';
-      return `${bodyHtml}${childModules}`;
+      if (!bodyHtml && !teamModules && !childModules) return '';
+      return `${bodyHtml}${teamModules}${childModules}`;
     }
 
     function openObjectPanelByPayload(payload) {
@@ -10892,8 +11421,9 @@ Cancel = Abort`
       footer.innerHTML = objectPanelFooterHtml(payload);
       const bodyBaseHtml = extractPanelModuleBodyHtml(moduleHtml)
         || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`;
+      const teamHtml = objectPanelTeamHtml(payload);
       const childrenHtml = objectPanelChildrenHtml(payload);
-      body.innerHTML = panelBodyModulesHtml(bodyBaseHtml, childrenHtml);
+      body.innerHTML = panelBodyModulesHtml(bodyBaseHtml, teamHtml, childrenHtml);
       panel.classList.add('open');
       panel.classList.remove('hidden');
       const isMobile = (window.innerWidth || 0) <= 980;
@@ -12421,12 +12951,14 @@ Cancel = Abort`
       applyModuleLayoutRules();
       updateGanttBarOverflowLabels();
       keepPopoverInViewport(document.getElementById('capacityCellPopover'));
+      keepPillDropdownsInViewport();
     });
     window.addEventListener('orientationchange', () => {
       syncRailAnchors();
       applyModuleLayoutRules();
       updateGanttBarOverflowLabels();
       keepPopoverInViewport(document.getElementById('capacityCellPopover'));
+      keepPillDropdownsInViewport();
     });
     document.addEventListener('click', (event) => {
       const target = event.target;

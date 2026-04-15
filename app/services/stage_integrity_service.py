@@ -360,7 +360,11 @@ class StageIntegrityService:
                 for k, v in (row.get("hours_by_role") or {}).items()
                 if float(v or 0) > 0
             }
-            owner_role = self._owner_role_from_hours(hours_by_role)
+            owner_role = self._owner_role_for_csv_step(
+                campaign=campaign,
+                step_name_base=step_name_base,
+                hours_by_role=hours_by_role,
+            )
             step_kind = WorkflowStepKind(str(row.get("step_kind") or "task"))
             frequency = str(row.get("frequency") or "per_campaign")
             lower_step_name = step_name_base.lower()
@@ -545,6 +549,27 @@ class StageIntegrityService:
             return RoleName.CM
         ranking.sort(reverse=True)
         return ranking[0][2]
+
+    def _owner_role_for_csv_step(
+        self,
+        campaign: Campaign,
+        step_name_base: str,
+        hours_by_role: dict[str, float],
+    ) -> RoleName:
+        step_name = str(step_name_base or "").strip().lower()
+        if step_name == "ko/planning call":
+            if campaign.campaign_type in {CampaignType.AMPLIFY, CampaignType.RESPONSE}:
+                return RoleName.AM
+            if campaign.campaign_type == CampaignType.DEMAND:
+                if int(campaign.demand_sprint_number or 0) == 1:
+                    return RoleName.AM
+                if int(campaign.demand_sprint_number or 0) in {2, 3, 4}:
+                    return RoleName.CC
+        if step_name in {"content plan internal review", "content internal review"}:
+            return RoleName.CC
+        if step_name == "report internal review":
+            return RoleName.AM
+        return self._owner_role_from_hours(hours_by_role)
 
     def _create_stage_step(
         self,

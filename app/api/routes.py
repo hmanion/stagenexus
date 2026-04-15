@@ -1509,12 +1509,19 @@ def update_campaign_assignments(campaign_id: str, payload: CampaignAssignmentsUp
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
+    can_manage_assignments = _actor_has_control_permission(
         db,
         actor,
         "manage_campaign_assignments",
         fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
-    ):
+    )
+    can_manage_step = _actor_has_control_permission(
+        db,
+        actor,
+        "manage_step",
+        fallback_allowed_roles={RoleName.CM, RoleName.CC, RoleName.CCS, RoleName.HEAD_OPS, RoleName.ADMIN},
+    )
+    if not (can_manage_assignments or can_manage_step):
         raise HTTPException(status_code=403, detail="insufficient role permissions")
 
     updates = [

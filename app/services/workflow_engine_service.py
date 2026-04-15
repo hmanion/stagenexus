@@ -361,10 +361,15 @@ class WorkflowEngineService:
             stage.current_due = None
             stage.actual_done = None
             return
-        stage.baseline_start = min((s.baseline_start for s in steps if s.baseline_start), default=None)
-        stage.baseline_due = max((s.baseline_due for s in steps if s.baseline_due), default=None)
-        stage.current_start = min((s.current_start for s in steps if s.current_start), default=None)
-        stage.current_due = max((s.current_due for s in steps if s.current_due), default=None)
+        baseline_starts = [s.baseline_start or s.baseline_due for s in steps if (s.baseline_start or s.baseline_due)]
+        baseline_dues = [s.baseline_due or s.baseline_start for s in steps if (s.baseline_due or s.baseline_start)]
+        current_starts = [s.current_start or s.current_due for s in steps if (s.current_start or s.current_due)]
+        current_dues = [s.current_due or s.current_start for s in steps if (s.current_due or s.current_start)]
+
+        stage.baseline_start = min(baseline_starts, default=None)
+        stage.baseline_due = max(baseline_dues, default=None)
+        stage.current_start = min(current_starts, default=None)
+        stage.current_due = max(current_dues, default=None)
         if all(s.actual_done is not None for s in steps):
             stage.actual_done = max((s.actual_done for s in steps if s.actual_done), default=None)
         else:

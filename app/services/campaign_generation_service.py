@@ -1095,9 +1095,15 @@ class CampaignGenerationService:
                 targets.append((None, step_name_base))
 
             for target_deliverable, step_name in targets:
-                owner_role = self._owner_role_from_hours(hours_by_role)
+                owner_role, owner_role_overridden = self._owner_role_for_csv_step(
+                    campaign=campaign,
+                    step_name_base=step_name_base,
+                    hours_by_role=hours_by_role,
+                )
                 owner_user_id = self._find_assigned_user_for_role(campaign.id, owner_role)
-                owner_from_allocations = self._owner_user_from_role_hours(campaign.id, hours_by_role)
+                owner_from_allocations = (
+                    None if owner_role_overridden else self._owner_user_from_role_hours(campaign.id, hours_by_role)
+                )
                 planned_start = stage_anchor.get(stage) or date.today()
 
                 dep_steps: list[WorkflowStep] = []
@@ -1163,6 +1169,27 @@ class CampaignGenerationService:
                     )
 
                 created_by_base.setdefault(step_name_base, []).append((workflow_step, target_deliverable))
+
+    def _owner_role_for_csv_step(
+        self,
+        campaign: Campaign,
+        step_name_base: str,
+        hours_by_role: dict[str, float],
+    ) -> tuple[RoleName, bool]:
+        step_name = str(step_name_base or "").strip().lower()
+        if step_name == "ko/planning call":
+            if campaign.campaign_type in {CampaignType.AMPLIFY, CampaignType.RESPONSE}:
+                return RoleName.AM, True
+            if campaign.campaign_type == CampaignType.DEMAND:
+                if int(campaign.demand_sprint_number or 0) == 1:
+                    return RoleName.AM, True
+                if int(campaign.demand_sprint_number or 0) in {2, 3, 4}:
+                    return RoleName.CC, True
+        if step_name in {"content plan internal review", "content internal review"}:
+            return RoleName.CC, True
+        if step_name == "report internal review":
+            return RoleName.AM, True
+        return self._owner_role_from_hours(hours_by_role), False
 
     @classmethod
     def _owner_role_from_hours(cls, hours_by_role: dict[str, float]) -> RoleName:
