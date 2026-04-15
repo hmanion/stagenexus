@@ -1135,6 +1135,7 @@ def list_deals(
                 "assigned_cc_user_id": d.assigned_cc_user_id,
                 "assigned_ccs_user_id": d.assigned_ccs_user_id,
                 "client_contact_name": primary_contact.name if primary_contact else None,
+                "client_contact_email": primary_contact.email if primary_contact else None,
                 "attachments": [
                     {
                         "file_name": attachment.file_name,
