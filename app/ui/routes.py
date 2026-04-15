@@ -885,6 +885,13 @@ def index() -> str:
       position: relative;
       container-type: inline-size;
       overflow: visible;
+      z-index: 0;
+    }
+    .module-card:has(.module-options.open),
+    .module-card:has(.list-options.open),
+    .list-module-row:has(.module-options.open),
+    .list-module-row:has(.list-options.open) {
+      z-index: 90;
     }
     .module-card::before,
     .module-popover::before {
@@ -11420,7 +11427,7 @@ Cancel = Abort`
     });
     document.addEventListener('click', (event) => {
       const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
+      if (!(target instanceof Element)) return;
 
       const listToggle = target.closest('[data-list-toggle]');
       if (listToggle instanceof HTMLElement) {
