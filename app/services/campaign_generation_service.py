@@ -33,7 +33,9 @@ from app.models.domain import (
     PublicationName,
 )
 from app.services.calendar_service import build_default_working_calendar
+from app.services.deliverable_derivation_service import DeliverableDerivationService
 from app.services.id_service import PublicIdService
+from app.services.milestone_service import MilestoneService, STAGE_MILESTONE_MAP
 from app.services.ops_defaults_service import OpsDefaultsService
 from app.services.stage_integrity_service import REPORTING_DELIVERABLE_TYPES, StageIntegrityService
 from app.services.timeline_service import TimelineService
@@ -57,6 +59,8 @@ class CampaignGenerationService:
         self.public_ids = PublicIdService(db)
         self.ops_defaults = OpsDefaultsService(db).get()
         self.stage_integrity = StageIntegrityService(db)
+        self.milestones = MilestoneService(db)
+        self.deliverable_derivation = DeliverableDerivationService(db)
 
     def generate_for_deal(self, deal: Deal) -> list[Campaign]:
         lines = self.db.scalars(select(DealProductLine).where(DealProductLine.deal_id == deal.id)).all()
@@ -565,6 +569,8 @@ class CampaignGenerationService:
 
     def _deliverable_due_date(self, deal: Deal, deliverable_type: DeliverableType, sprint_start: date) -> date | None:
         milestones = {name: target for name, target in self._tdtimeline_default_milestones(sprint_start)}
+        milestones["reporting"] = milestones.get("report_available") or milestones.get("reporting")
+        milestones["promoting"] = milestones.get("benchmark_met") or milestones.get("promoting")
         if deliverable_type == DeliverableType.LEAD_TOTAL:
             if deal.sow_end_date:
                 return self.timeline.calendar.next_working_day_on_or_after(deal.sow_end_date)
@@ -578,11 +584,11 @@ class CampaignGenerationService:
             DeliverableType.VIDEO: "publishing",
             DeliverableType.CLIP: "publishing",
             DeliverableType.SHORT: "publishing",
-            DeliverableType.REPORT: "reporting",
-            DeliverableType.ENGAGEMENT_LIST: "reporting",
+            DeliverableType.REPORT: "report_available",
+            DeliverableType.ENGAGEMENT_LIST: "report_available",
             DeliverableType.LANDING_PAGE: "publishing",
             DeliverableType.EMAIL: "publishing",
-            DeliverableType.DISPLAY_ASSET: "promoting",
+            DeliverableType.DISPLAY_ASSET: "benchmark_met",
         }
         anchor = milestones.get(milestone_map.get(deliverable_type, "publishing")) or sprint_start
         return self.timeline.calendar.next_working_day_on_or_after(anchor)
@@ -597,14 +603,26 @@ class CampaignGenerationService:
 
     def _create_milestones(self, campaign: Campaign, template: TemplateVersion, campaign_start: date | None) -> None:
         anchor_start = campaign_start or date.today()
+        required_stage_names = set(STAGE_MILESTONE_MAP.keys())
+        stage_ids = self.stage_integrity.stage_ids_for_campaign(campaign.id, required_stage_names)
+        stage_name_by_milestone = {
+            milestone_name: stage_name
+            for stage_name, milestone_names in STAGE_MILESTONE_MAP.items()
+            for milestone_name in milestone_names
+        }
         for name, target in self._tdtimeline_default_milestones(anchor_start):
+            normalized_target = self.timeline.calendar.next_working_day_on_or_after(target)
+            stage_name = stage_name_by_milestone.get(name)
             self.db.add(
                 Milestone(
                     display_id=self.public_ids.next_id(Milestone, "MS"),
                     campaign_id=campaign.id,
+                    stage_id=stage_ids.get(stage_name) if stage_name else None,
                     name=name,
-                    baseline_date=target,
-                    current_target_date=target,
+                    due_date=normalized_target,
+                    baseline_date=normalized_target,
+                    current_target_date=normalized_target,
+                    offset_days_from_campaign_start=(normalized_target - anchor_start).days,
                 )
             )
 
@@ -643,8 +661,8 @@ class CampaignGenerationService:
         reporting_start = promotion_end + timedelta(days=1)
         reporting_end = reporting_start + timedelta(days=reporting_duration_days)
 
-        promoting = self._tdtimeline_working_day_on_or_after(promotion_end)
-        reporting = self._tdtimeline_working_day_on_or_after(reporting_end)
+        benchmark_met = self._tdtimeline_working_day_on_or_after(promotion_end)
+        report_available = self._tdtimeline_working_day_on_or_after(reporting_end)
 
         return [
             ("kickoff", ko),
@@ -654,8 +672,8 @@ class CampaignGenerationService:
             ("internal_review", internal_review),
             ("client_review", client_review),
             ("publishing", publishing),
-            ("promoting", promoting),
-            ("reporting", reporting),
+            ("benchmark_met", benchmark_met),
+            ("report_available", report_available),
         ]
 
     def _next_monday_after_ko_week(self, ko_date: date) -> date:
@@ -877,7 +895,7 @@ class CampaignGenerationService:
             DeliverableType.ENGAGEMENT_LIST,
             DeliverableType.LEAD_TOTAL,
         }:
-            return "reporting"
+            return "report_available"
         if deliverable_type in {DeliverableType.LANDING_PAGE, DeliverableType.EMAIL, DeliverableType.DISPLAY_ASSET}:
             return "publishing"
         return "kickoff"
@@ -981,6 +999,7 @@ class CampaignGenerationService:
             default_owner_role=default_owner_role.value if default_owner_role else None,
             deliverable_type=deliverable_type,
             stage=self._deliverable_stage_for_type(deliverable_type),
+            operational_stage_status=self._deliverable_stage_for_type(deliverable_type),
             title=self._deliverable_title(deliverable_type, sprint_number, lead_target),
             status=DeliverableStatus.PLANNED,
             current_start=campaign_start,
@@ -989,6 +1008,7 @@ class CampaignGenerationService:
             internal_review_stall_threshold_days=internal_threshold,
             client_review_stall_threshold_days=client_threshold,
         )
+        self.deliverable_derivation.assign_sequence_and_title(deliverable)
         self.db.add(deliverable)
         self.db.flush()
         deliverable_steps = list(
@@ -1052,7 +1072,7 @@ class CampaignGenerationService:
             "planning": milestone_map.get("kickoff") or date.today(),
             "production": milestone_map.get("content_plan") or milestone_map.get("kickoff") or date.today(),
             "promotion": milestone_map.get("publishing") or milestone_map.get("content_plan") or date.today(),
-            "reporting": milestone_map.get("reporting") or milestone_map.get("publishing") or date.today(),
+            "reporting": milestone_map.get("report_available") or milestone_map.get("reporting") or milestone_map.get("publishing") or date.today(),
         }
         has_reporting_deliverables = any(d.deliverable_type in REPORTING_DELIVERABLE_TYPES for d in deliverables)
         required_stage_names = {

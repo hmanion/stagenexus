@@ -64,6 +64,17 @@ class ScopeContentUpdateIn(BaseModel):
     messaging_positioning: str | None = None
 
 
+class ScopeTimeframeUpdateIn(BaseModel):
+    actor_user_id: str
+    sow_start_date: date | None = None
+    sow_end_date: date | None = None
+
+
+class ScopeDeleteIn(BaseModel):
+    actor_user_id: str
+    confirmation_phrase: str
+
+
 class OpsApproveIn(BaseModel):
     head_ops_user_id: str
     cm_user_id: str

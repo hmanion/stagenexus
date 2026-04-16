@@ -12,6 +12,7 @@ from app.models.domain import (
     GlobalHealth,
     GlobalStatus,
     Stage,
+    StatusSource,
     WaitingOnType,
     WorkflowStep,
     WorkflowStepDependency,
@@ -19,6 +20,7 @@ from app.models.domain import (
     User,
 )
 from app.services.calendar_service import build_default_working_calendar
+from app.services.status_rollup_service import StatusRollupService
 from app.services.timeline_service import TimelineService
 
 
@@ -45,6 +47,8 @@ class WorkflowEngineService:
         now = datetime.utcnow()
         step.actual_start = step.actual_start or now
         step.actual_done = now
+        step.completion_date = now.date()
+        step.planned_work_date = step.planned_work_date or (step.current_start or now.date())
         step.waiting_on_type = None
         step.waiting_on_user_id = None
         step.waiting_since = None
@@ -54,6 +58,7 @@ class WorkflowEngineService:
 
         self._activate_successors(step)
         self._refresh_stage_from_steps(step.stage_id)
+        StatusRollupService(self.db).reset_parents_after_step_change(step)
         return step
 
     def override_step_due(self, step_id: str, current_due_iso: str) -> WorkflowStep:
@@ -68,8 +73,11 @@ class WorkflowEngineService:
         if step.current_start is None:
             step.current_start = self.timeline.calendar.next_working_day_on_or_after(datetime.utcnow().date())
         step.current_due = new_due
+        step.earliest_start_date = step.earliest_start_date or step.current_start
+        step.planned_work_date = step.planned_work_date or step.current_start
 
         self._recalculate_successor_chain(step)
+        StatusRollupService(self.db).reset_parents_after_step_change(step)
         return step
 
     def manage_step(
@@ -82,6 +90,8 @@ class WorkflowEngineService:
         blocker_reason: str | None = None,
         current_start_iso: str | None = None,
         current_due_iso: str | None = None,
+        planned_work_date_iso: str | None = None,
+        completion_date_iso: str | None = None,
     ) -> WorkflowStep:
         step = self.db.get(WorkflowStep, step_id) or self.db.scalar(
             select(WorkflowStep).where(WorkflowStep.display_id == step_id)
@@ -107,20 +117,40 @@ class WorkflowEngineService:
         if current_start_iso:
             raw_start = datetime.fromisoformat(current_start_iso).date()
             step.current_start = self.timeline.calendar.next_working_day_on_or_after(raw_start)
+            step.earliest_start_date = step.current_start
+            step.planned_work_date = step.planned_work_date or step.current_start
 
         if current_due_iso:
             raw_due = datetime.fromisoformat(current_due_iso).date()
             step.current_due = self.timeline.calendar.next_working_day_on_or_after(raw_due)
             if step.current_start is None:
                 step.current_start = self.timeline.calendar.next_working_day_on_or_after(datetime.utcnow().date())
+            step.earliest_start_date = step.earliest_start_date or step.current_start
         if step.current_start and step.current_due and step.current_due < step.current_start:
             step.current_due = step.current_start
+
+        if planned_work_date_iso:
+            raw_planned = datetime.fromisoformat(planned_work_date_iso).date()
+            step.planned_work_date = self.timeline.calendar.next_working_day_on_or_after(raw_planned)
+
+        if completion_date_iso is not None:
+            if completion_date_iso.strip():
+                raw_completion = datetime.fromisoformat(completion_date_iso).date()
+                completion = self.timeline.calendar.next_working_day_on_or_after(raw_completion)
+                step.completion_date = completion
+                step.actual_done = datetime.combine(completion, datetime.min.time())
+                step.normalized_status = GlobalStatus.DONE
+                step.normalized_health = GlobalHealth.ON_TRACK
+            else:
+                step.completion_date = None
+                step.actual_done = None
 
         if blocker_reason is not None:
             step.blocker_reason = blocker_reason.strip() or None
 
         if not status:
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
 
         normalized = status.strip().lower()
@@ -136,9 +166,11 @@ class WorkflowEngineService:
                 enforce_next_owner=False,
             )
             self._refresh_stage_from_steps(result.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(result)
             return result
         if normalized in {"cancelled", "canceled"}:
             step.actual_done = now
+            step.completion_date = now.date()
             step.waiting_on_type = None
             step.waiting_on_user_id = None
             step.waiting_since = None
@@ -146,10 +178,12 @@ class WorkflowEngineService:
             step.normalized_status = GlobalStatus.CANCELLED
             step.normalized_health = GlobalHealth.OFF_TRACK
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
         if normalized in {"not_started", "planned"}:
             step.actual_start = None
             step.actual_done = None
+            step.completion_date = None
             step.waiting_on_type = None
             step.waiting_on_user_id = None
             step.waiting_since = None
@@ -157,9 +191,11 @@ class WorkflowEngineService:
             step.normalized_status = GlobalStatus.NOT_STARTED
             step.normalized_health = GlobalHealth.NOT_STARTED
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
         if normalized == "reopen":
             step.actual_done = None
+            step.completion_date = None
             step.waiting_on_type = None
             step.waiting_since = None
             if step.current_start is None:
@@ -167,10 +203,12 @@ class WorkflowEngineService:
             step.normalized_status = GlobalStatus.IN_PROGRESS
             step.normalized_health = GlobalHealth.ON_TRACK
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
         if normalized == "in_progress":
             step.actual_start = step.actual_start or now
             step.actual_done = None
+            step.completion_date = None
             step.waiting_on_type = None
             step.waiting_since = None
             step.blocker_reason = None
@@ -179,15 +217,18 @@ class WorkflowEngineService:
             step.normalized_status = GlobalStatus.IN_PROGRESS
             step.normalized_health = GlobalHealth.ON_TRACK
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
         if normalized in {"on_hold", "hold"}:
             step.actual_done = None
+            step.completion_date = None
             step.waiting_on_type = None
             step.waiting_on_user_id = step.waiting_on_user_id
             step.waiting_since = step.waiting_since or now
             step.normalized_status = GlobalStatus.ON_HOLD
             step.normalized_health = GlobalHealth.AT_RISK
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
         if normalized == "clear_blocker":
             step.waiting_on_type = None
@@ -197,6 +238,7 @@ class WorkflowEngineService:
             step.normalized_status = GlobalStatus.IN_PROGRESS if step.actual_start else GlobalStatus.NOT_STARTED
             step.normalized_health = GlobalHealth.ON_TRACK if step.actual_start else GlobalHealth.NOT_STARTED
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
 
         blocked_map = {
@@ -207,6 +249,7 @@ class WorkflowEngineService:
         waiting_type = blocked_map.get(normalized)
         if waiting_type:
             step.actual_done = None
+            step.completion_date = None
             step.waiting_on_type = waiting_type
             step.waiting_since = step.waiting_since or now
             if step.current_start is None:
@@ -219,6 +262,7 @@ class WorkflowEngineService:
                 step.normalized_status = GlobalStatus.BLOCKED_DEPENDENCY
             step.normalized_health = GlobalHealth.AT_RISK
             self._refresh_stage_from_steps(step.stage_id)
+            StatusRollupService(self.db).reset_parents_after_step_change(step)
             return step
 
         raise HTTPException(status_code=400, detail="unsupported status action")
@@ -239,10 +283,13 @@ class WorkflowEngineService:
                 successor.current_start = self.timeline.calendar.next_working_day_on_or_after(
                     max(successor.current_start or start, start)
                 )
-                duration = self._duration_working_days(successor)
-                successor.current_due = self.timeline.calendar.next_working_day_on_or_after(
-                    self.timeline.calendar.add_working_days(successor.current_start, duration)
-                )
+                successor.earliest_start_date = successor.current_start
+                successor.planned_work_date = successor.planned_work_date or successor.current_start
+                if successor.current_due is None:
+                    duration = self._duration_working_days(successor)
+                    successor.current_due = self.timeline.calendar.next_working_day_on_or_after(
+                        self.timeline.calendar.add_working_days(successor.current_start, duration)
+                    )
 
                 successor.next_owner_user_id = self._resolve_owner_user_id(successor)
                 successor.waiting_on_type = None
@@ -288,13 +335,18 @@ class WorkflowEngineService:
                 ]
                 or [successor.current_start or datetime.utcnow().date()]
             )
-            successor.current_start = self.timeline.calendar.next_working_day_on_or_after(latest_start)
-            successor.current_due = self.timeline.calendar.next_working_day_on_or_after(
-                self.timeline.calendar.add_working_days(
-                    successor.current_start,
-                    self._duration_working_days(successor),
+            earliest = self.timeline.calendar.next_working_day_on_or_after(latest_start)
+            successor.earliest_start_date = earliest
+            if successor.current_start is None or successor.current_start < earliest:
+                successor.current_start = earliest
+            successor.planned_work_date = successor.planned_work_date or successor.current_start
+            if successor.current_due is None:
+                successor.current_due = self.timeline.calendar.next_working_day_on_or_after(
+                    self.timeline.calendar.add_working_days(
+                        successor.current_start,
+                        self._duration_working_days(successor),
+                    )
                 )
-            )
             self._recalculate_successor_chain(successor, visited)
 
     def _all_predecessors_done(self, step_id: str) -> bool:
@@ -353,6 +405,9 @@ class WorkflowEngineService:
             return
         steps = self.db.scalars(select(WorkflowStep).where(WorkflowStep.stage_id == stage_id)).all()
         if not steps:
+            stage.status_source = StatusSource.DERIVED
+            stage.status_overridden_by_user_id = None
+            stage.status_overridden_at = None
             stage.status = GlobalStatus.NOT_STARTED
             stage.health = GlobalHealth.NOT_STARTED
             stage.baseline_start = None
@@ -376,6 +431,9 @@ class WorkflowEngineService:
             stage.actual_done = None
 
         statuses = [s.normalized_status.value for s in steps if s.normalized_status]
+        stage.status_source = StatusSource.DERIVED
+        stage.status_overridden_by_user_id = None
+        stage.status_overridden_at = None
         if statuses and all(v == "done" for v in statuses):
             stage.status = GlobalStatus.DONE
         elif any(v == "blocked_dependency" for v in statuses):

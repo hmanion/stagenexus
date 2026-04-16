@@ -30,3 +30,10 @@ class CampaignDatesUpdateIn(BaseModel):
     actor_user_id: str
     planned_start_iso: str | None = None
     planned_end_iso: str | None = None
+
+
+class CampaignDescendantStatusBulkIn(BaseModel):
+    actor_user_id: str
+    status: str
+    dry_run: bool = False
+    confirmation_phrase: str | None = None

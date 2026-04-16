@@ -9,6 +9,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     additions = {
         "users": [
             ("primary_team", "VARCHAR(32) NOT NULL DEFAULT 'CLIENT_SERVICES'"),
+            ("editorial_subteam", "VARCHAR(8)"),
             ("seniority", "VARCHAR(16) NOT NULL DEFAULT 'STANDARD'"),
             ("app_role", "VARCHAR(16) NOT NULL DEFAULT 'USER'"),
         ],
@@ -18,11 +19,16 @@ def ensure_runtime_schema(engine: Engine) -> None:
             ("demand_track", "VARCHAR(32)"),
             ("planned_start_date", "DATE"),
             ("planned_end_date", "DATE"),
+            ("status_source", "VARCHAR(16) NOT NULL DEFAULT 'derived'"),
+            ("status_overridden_by_user_id", "VARCHAR(36)"),
+            ("status_overridden_at", "DATETIME"),
         ],
         "deliverables": [
             ("campaign_id", "VARCHAR(36)"),
             ("default_owner_role", "VARCHAR(11)"),
             ("stage", "VARCHAR(16) NOT NULL DEFAULT 'planning'"),
+            ("operational_stage_status", "VARCHAR(16) NOT NULL DEFAULT 'planning'"),
+            ("sequence_number", "INTEGER NOT NULL DEFAULT 1"),
             ("current_start", "DATE"),
             ("internal_review_rounds", "INTEGER NOT NULL DEFAULT 0"),
             ("client_review_rounds", "INTEGER NOT NULL DEFAULT 0"),
@@ -30,6 +36,15 @@ def ensure_runtime_schema(engine: Engine) -> None:
         ],
         "milestones": [
             ("campaign_id", "VARCHAR(36)"),
+            ("stage_id", "VARCHAR(36)"),
+            ("owner_user_id", "VARCHAR(36)"),
+            ("due_date", "DATE"),
+            ("completion_date", "DATE"),
+            ("sla_health", "VARCHAR(16) NOT NULL DEFAULT 'not_due'"),
+            ("sla_health_manual_override", "BOOLEAN NOT NULL DEFAULT 0"),
+            ("sla_health_overridden_by_user_id", "VARCHAR(36)"),
+            ("sla_health_overridden_at", "DATETIME"),
+            ("offset_days_from_campaign_start", "INTEGER"),
         ],
         "product_modules": [
             ("campaign_id", "VARCHAR(36)"),
@@ -39,11 +54,19 @@ def ensure_runtime_schema(engine: Engine) -> None:
             ("stage_id", "VARCHAR(36)"),
             ("linked_deliverable_id", "VARCHAR(36)"),
             ("planned_hours_baseline", "REAL NOT NULL DEFAULT 0"),
+            ("earliest_start_date", "DATE"),
+            ("planned_work_date", "DATE"),
+            ("completion_date", "DATE"),
             ("sprint_id", "VARCHAR(36)"),
             ("stage_name", "VARCHAR(32)"),
             ("step_kind", "VARCHAR(16) NOT NULL DEFAULT 'task'"),
             ("normalized_status", "VARCHAR(24) NOT NULL DEFAULT 'not_started'"),
             ("normalized_health", "VARCHAR(24) NOT NULL DEFAULT 'not_started'"),
+        ],
+        "stages": [
+            ("status_source", "VARCHAR(16) NOT NULL DEFAULT 'derived'"),
+            ("status_overridden_by_user_id", "VARCHAR(36)"),
+            ("status_overridden_at", "DATETIME"),
         ],
         "capacity_ledger": [
             ("active_planned_hours", "REAL NOT NULL DEFAULT 0"),
@@ -75,6 +98,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
         _backfill_user_identity_fields(conn)
         _normalize_user_identity_enum_storage(conn)
         _backfill_deliverable_owner_defaults(conn)
+        _backfill_milestone_canonical_fields(conn)
+        _backfill_step_planned_fields(conn)
+        _backfill_deliverable_sequence_and_operational_status(conn)
+        _ensure_new_indexes(conn)
         _ensure_review_window_tables(conn)
         _ensure_workflow_step_efforts_table(conn)
 
@@ -119,6 +146,9 @@ def _ensure_workflow_steps_sqlite_parent_shape(conn) -> None:
                 owner_role VARCHAR(11) NOT NULL,
                 planned_hours REAL NOT NULL DEFAULT 0,
                 planned_hours_baseline REAL NOT NULL DEFAULT 0,
+                earliest_start_date DATE,
+                planned_work_date DATE,
+                completion_date DATE,
                 baseline_start DATE,
                 baseline_due DATE,
                 current_start DATE,
@@ -152,7 +182,7 @@ def _ensure_workflow_steps_sqlite_parent_shape(conn) -> None:
             """
             INSERT INTO workflow_steps_new (
                 id, display_id, campaign_id, stage_id, linked_deliverable_id, deliverable_id, sprint_id, stage_name, name, step_kind, normalized_status, normalized_health, owner_role, planned_hours,
-                planned_hours_baseline, baseline_start, baseline_due, current_start, current_due,
+                planned_hours_baseline, earliest_start_date, planned_work_date, completion_date, baseline_start, baseline_due, current_start, current_due,
                 actual_start, actual_done, waiting_on_type, waiting_on_user_id, waiting_since,
                 blocker_reason, stuck_threshold_days, next_owner_user_id, created_at, updated_at
             )
@@ -183,6 +213,9 @@ def _ensure_workflow_steps_sqlite_parent_shape(conn) -> None:
                 ws.owner_role,
                 COALESCE(ws.planned_hours, 0),
                 COALESCE(ws.planned_hours_baseline, ws.planned_hours, 0),
+                COALESCE(ws.earliest_start_date, ws.current_start, ws.baseline_start),
+                COALESCE(ws.planned_work_date, ws.current_start, ws.baseline_start),
+                COALESCE(ws.completion_date, DATE(ws.actual_done)),
                 ws.baseline_start,
                 ws.baseline_due,
                 ws.current_start,
@@ -222,6 +255,9 @@ def _ensure_stages_table(conn) -> None:
                 campaign_id VARCHAR(36) NOT NULL,
                 name VARCHAR(32) NOT NULL,
                 status VARCHAR(24) NOT NULL DEFAULT 'not_started',
+                status_source VARCHAR(16) NOT NULL DEFAULT 'derived',
+                status_overridden_by_user_id VARCHAR(36),
+                status_overridden_at DATETIME,
                 health VARCHAR(24) NOT NULL DEFAULT 'not_started',
                 baseline_start DATE,
                 baseline_due DATE,
@@ -264,6 +300,8 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
                 deliverable_type VARCHAR(15) NOT NULL,
                 status VARCHAR(24) NOT NULL,
                 stage VARCHAR(16) NOT NULL DEFAULT 'planning',
+                operational_stage_status VARCHAR(16) NOT NULL DEFAULT 'planning',
+                sequence_number INTEGER NOT NULL DEFAULT 1,
                 title VARCHAR(255) NOT NULL,
                 current_start DATE,
                 baseline_due DATE,
@@ -296,7 +334,7 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
         text(
             """
             INSERT INTO deliverables_new (
-                id, display_id, campaign_id, sprint_id, publication_id, owner_user_id, default_owner_role, deliverable_type, status, stage, title,
+                id, display_id, campaign_id, sprint_id, publication_id, owner_user_id, default_owner_role, deliverable_type, status, stage, operational_stage_status, sequence_number, title,
                 current_start, baseline_due, current_due, actual_done, internal_review_stall_threshold_days, client_review_stall_threshold_days,
                 awaiting_internal_review_since, awaiting_client_review_since, client_changes_requested_at, approved_at,
                 scheduled_or_published_at, ready_to_publish_by_user_id, ready_to_publish_at,
@@ -309,6 +347,8 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
                     WHEN d.deliverable_type IN ('display_asset') THEN 'promotion'
                     ELSE 'production'
                 END),
+                COALESCE(d.operational_stage_status, d.stage, 'planning'),
+                COALESCE(d.sequence_number, 1),
                 d.title,
                 d.current_start, d.baseline_due, d.current_due, d.actual_done, d.internal_review_stall_threshold_days, d.client_review_stall_threshold_days,
                 d.awaiting_internal_review_since, d.awaiting_client_review_since, d.client_changes_requested_at, d.approved_at,
@@ -345,14 +385,26 @@ def _ensure_milestones_sqlite_campaign_shape(conn) -> None:
                 display_id VARCHAR(32) NOT NULL UNIQUE,
                 campaign_id VARCHAR(36),
                 sprint_id VARCHAR(36),
+                stage_id VARCHAR(36),
+                owner_user_id VARCHAR(36),
                 name VARCHAR(120) NOT NULL,
+                due_date DATE,
+                completion_date DATE,
+                sla_health VARCHAR(16) NOT NULL DEFAULT 'not_due',
+                sla_health_manual_override BOOLEAN NOT NULL DEFAULT 0,
+                sla_health_overridden_by_user_id VARCHAR(36),
+                sla_health_overridden_at DATETIME,
+                offset_days_from_campaign_start INTEGER,
                 baseline_date DATE,
                 current_target_date DATE,
                 achieved_at DATETIME,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL,
                 FOREIGN KEY(campaign_id) REFERENCES campaigns(id),
-                FOREIGN KEY(sprint_id) REFERENCES sprints(id)
+                FOREIGN KEY(sprint_id) REFERENCES sprints(id),
+                FOREIGN KEY(stage_id) REFERENCES stages(id),
+                FOREIGN KEY(owner_user_id) REFERENCES users(id),
+                FOREIGN KEY(sla_health_overridden_by_user_id) REFERENCES users(id)
             )
             """
         )
@@ -361,10 +413,20 @@ def _ensure_milestones_sqlite_campaign_shape(conn) -> None:
         text(
             """
             INSERT INTO milestones_new (
-                id, display_id, campaign_id, sprint_id, name, baseline_date, current_target_date, achieved_at, created_at, updated_at
+                id, display_id, campaign_id, sprint_id, stage_id, owner_user_id, name, due_date, completion_date, sla_health,
+                sla_health_manual_override, sla_health_overridden_by_user_id, sla_health_overridden_at, offset_days_from_campaign_start,
+                baseline_date, current_target_date, achieved_at, created_at, updated_at
             )
             SELECT
-                m.id, m.display_id, m.campaign_id, m.sprint_id, m.name, m.baseline_date, m.current_target_date, m.achieved_at, m.created_at, m.updated_at
+                m.id, m.display_id, m.campaign_id, m.sprint_id, m.stage_id, m.owner_user_id, m.name,
+                COALESCE(m.due_date, m.current_target_date, m.baseline_date),
+                COALESCE(m.completion_date, DATE(m.achieved_at)),
+                COALESCE(m.sla_health, 'not_due'),
+                COALESCE(m.sla_health_manual_override, 0),
+                m.sla_health_overridden_by_user_id,
+                m.sla_health_overridden_at,
+                m.offset_days_from_campaign_start,
+                m.baseline_date, m.current_target_date, m.achieved_at, m.created_at, m.updated_at
             FROM milestones m
             """
         )
@@ -906,6 +968,18 @@ def _normalize_user_identity_enum_storage(conn) -> None:
             """
         )
     )
+    conn.execute(
+        text(
+            """
+            UPDATE users
+            SET editorial_subteam = CASE LOWER(TRIM(COALESCE(editorial_subteam, '')))
+              WHEN 'cx' THEN 'cx'
+              WHEN 'uc' THEN 'uc'
+              ELSE NULL
+            END
+            """
+        )
+    )
 
 
 def _backfill_deliverable_owner_defaults(conn) -> None:
@@ -999,6 +1073,126 @@ def _backfill_deliverable_owner_defaults(conn) -> None:
             """
         )
     )
+
+
+def _backfill_milestone_canonical_fields(conn) -> None:
+    conn.execute(
+        text(
+            """
+            UPDATE milestones
+            SET due_date = COALESCE(due_date, current_target_date, baseline_date)
+            WHERE due_date IS NULL
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE milestones
+            SET completion_date = COALESCE(completion_date, DATE(achieved_at))
+            WHERE completion_date IS NULL AND achieved_at IS NOT NULL
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE milestones
+            SET offset_days_from_campaign_start = (
+              CASE
+                WHEN c.planned_start_date IS NULL OR milestones.due_date IS NULL THEN NULL
+                ELSE CAST(julianday(milestones.due_date) - julianday(c.planned_start_date) AS INTEGER)
+              END
+            )
+            FROM campaigns c
+            WHERE c.id = milestones.campaign_id
+              AND offset_days_from_campaign_start IS NULL
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE milestones
+            SET sla_health = CASE
+              WHEN completion_date IS NOT NULL AND due_date IS NOT NULL AND completion_date <= due_date THEN 'met'
+              WHEN completion_date IS NOT NULL AND due_date IS NOT NULL AND completion_date > due_date THEN 'missed'
+              WHEN completion_date IS NULL AND due_date IS NOT NULL AND due_date < DATE('now') THEN 'missed'
+              ELSE 'not_due'
+            END
+            WHERE COALESCE(sla_health_manual_override, 0) = 0
+            """
+        )
+    )
+
+
+def _backfill_step_planned_fields(conn) -> None:
+    conn.execute(
+        text(
+            """
+            UPDATE workflow_steps
+            SET earliest_start_date = COALESCE(earliest_start_date, current_start, baseline_start)
+            WHERE earliest_start_date IS NULL
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE workflow_steps
+            SET planned_work_date = COALESCE(planned_work_date, current_start, baseline_start)
+            WHERE planned_work_date IS NULL
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE workflow_steps
+            SET completion_date = COALESCE(completion_date, DATE(actual_done))
+            WHERE completion_date IS NULL AND actual_done IS NOT NULL
+            """
+        )
+    )
+
+
+def _backfill_deliverable_sequence_and_operational_status(conn) -> None:
+    conn.execute(
+        text(
+            """
+            WITH ranked AS (
+              SELECT d.id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY d.campaign_id, LOWER(CAST(d.deliverable_type AS TEXT))
+                       ORDER BY d.created_at, d.id
+                     ) AS seq
+              FROM deliverables d
+            )
+            UPDATE deliverables
+            SET sequence_number = (
+              SELECT ranked.seq FROM ranked WHERE ranked.id = deliverables.id
+            )
+            WHERE sequence_number IS NULL OR sequence_number < 1
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            UPDATE deliverables
+            SET operational_stage_status = COALESCE(operational_stage_status, stage, 'planning')
+            WHERE operational_stage_status IS NULL
+            """
+        )
+    )
+
+
+def _ensure_new_indexes(conn) -> None:
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_workflow_steps_planned_work_date ON workflow_steps(planned_work_date)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_workflow_steps_earliest_start_date ON workflow_steps(earliest_start_date)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_milestones_stage_id ON milestones(stage_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_milestones_due_date ON milestones(due_date)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_deliverables_campaign_type_seq ON deliverables(campaign_id, deliverable_type, sequence_number)"))
 
 
 def assert_runtime_integrity(engine: Engine) -> None:

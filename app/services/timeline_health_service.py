@@ -43,7 +43,12 @@ class TimelineHealthService:
         self.defaults = self._defaults()
 
     def evaluate_step(self, step: WorkflowStep, campaign: Campaign | None = None) -> HealthEvaluation:
-        start = step.current_start or step.baseline_start or (campaign.planned_start_date if campaign else None)
+        start = (
+            step.earliest_start_date
+            or step.current_start
+            or step.baseline_start
+            or (campaign.planned_start_date if campaign else None)
+        )
         due = step.current_due or step.baseline_due or (campaign.planned_end_date if campaign else None)
         status = self._step_status(step)
         return self._evaluate_window(

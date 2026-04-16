@@ -145,6 +145,8 @@ def index() -> str:
       --obj-stage-soft: var(--sage-light);
       --obj-step: var(--rust);
       --obj-step-soft: var(--rust-light);
+      --obj-user: var(--violet);
+      --obj-user-soft: var(--violet-light);
       --radius: 6px;
       --radius-lg: 10px;
       --space-1: 4px;
@@ -348,6 +350,10 @@ def index() -> str:
     .object-panel-header[data-module='step'] {
       --object-panel-color: var(--obj-step);
       --object-panel-color-soft: var(--obj-step-soft);
+    }
+    .object-panel-header[data-module='user'] {
+      --object-panel-color: var(--obj-user);
+      --object-panel-color-soft: var(--obj-user-soft);
     }
     .object-panel-title-row {
       display: flex;
@@ -2199,6 +2205,44 @@ def index() -> str:
       flex-wrap: wrap;
       align-items: center;
     }
+    .multi-filter-dropdown {
+      position: relative;
+      min-width: 220px;
+    }
+    .multi-filter-dropdown > button {
+      min-width: 220px;
+      justify-content: space-between;
+      text-align: left;
+    }
+    .multi-filter-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      width: min(320px, 70vw);
+      max-height: 280px;
+      overflow: auto;
+      border: 0.5px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 0 10px 20px rgba(18, 28, 45, 0.15);
+      padding: 8px;
+      z-index: 25;
+      display: grid;
+      gap: 6px;
+    }
+    .multi-filter-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--ink);
+      padding: 2px 0;
+    }
+    .multi-filter-empty {
+      font-size: 12px;
+      color: var(--ink-3);
+      padding: 4px 0;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -2897,8 +2941,17 @@ __NAV_CONTROLS__
           <option value='off_track'>Off Track</option>
           <option value='not_started'>Not due</option>
         </select>
-        <label class='sub' for='qUsers'>Users</label>
-        <select id='qUsers' aria-label='Filter by users' multiple size='5' onchange='refreshAll()'></select>
+        <label class='sub' for='qUsersButton'>Users</label>
+        <div id='qUsersDropdown' class='multi-filter-dropdown'>
+          <button id='qUsersButton' type='button' class='ghost' aria-haspopup='true' aria-expanded='false' onclick='toggleUsersDropdown(event)'>All users</button>
+          <div id='qUsersMenu' class='multi-filter-menu hidden' role='menu' aria-label='Filter by users'></div>
+        </div>
+        <select id='qUsers' aria-label='Filter by users' multiple class='hidden' onchange='refreshAll()'></select>
+        <label class='sub' for='qUsersLogic'>Users logic</label>
+        <select id='qUsersLogic' aria-label='User filter logic' onchange='refreshAll()'>
+          <option value='or'>OR</option>
+          <option value='and'>AND</option>
+        </select>
       </div>
     </section>
 
@@ -2913,6 +2966,13 @@ __NAV_CONTROLS__
       <div class='section-head'>
         <h3>My Work</h3>
         <span id='myWorkSummary' class='muted' aria-live='polite'></span>
+      </div>
+      <div class='toolbar' style='margin-bottom:8px;'>
+        <label class='sub' for='myWorkMode'>Mode</label>
+        <select id='myWorkMode' onchange='renderMyWork(currentRole, currentActorId)'>
+          <option value='owned_only'>Owned only</option>
+          <option value='owned_and_participant'>Owned + participant</option>
+        </select>
       </div>
       <div class='queue-list' id='myWorkGrid'></div>
     </section>
@@ -3541,9 +3601,19 @@ __NAV_CONTROLS__
       return new Set(getMultiFilterValues('qUsers'));
     }
 
+    function selectedUserFilterLogic() {
+      const el = document.getElementById('qUsersLogic');
+      const value = String(el?.value || 'or').trim().toLowerCase();
+      return value === 'and' ? 'and' : 'or';
+    }
+
     function hasSelectedUserMatch(userIds = [], selectedUserIds = new Set()) {
       if (!(selectedUserIds instanceof Set) || !selectedUserIds.size) return true;
-      return (Array.isArray(userIds) ? userIds : []).some(userId => selectedUserIds.has(String(userId || '').trim()));
+      const selected = Array.from(selectedUserIds);
+      const available = new Set((Array.isArray(userIds) ? userIds : []).map(userId => String(userId || '').trim()).filter(Boolean));
+      const logic = selectedUserFilterLogic();
+      if (logic === 'and') return selected.every(userId => available.has(String(userId || '').trim()));
+      return selected.some(userId => available.has(String(userId || '').trim()));
     }
 
     function campaignUserIds(campaign = {}) {
@@ -3591,6 +3661,7 @@ __NAV_CONTROLS__
         .sort((a, b) => String(a?.name || a?.full_name || a?.email || a?.id || '').localeCompare(String(b?.name || b?.full_name || b?.email || b?.id || '')));
       if (!users.length) {
         select.innerHTML = "<option value='' disabled>No users available</option>";
+        renderUserQuickFilterDropdown([], new Set());
         return;
       }
       select.innerHTML = users.map(user => {
@@ -3599,6 +3670,68 @@ __NAV_CONTROLS__
         const selectedAttr = selected.has(userId) ? ' selected' : '';
         return `<option value="${userId.replace(/"/g, '&quot;')}"${selectedAttr}>${escapeHtml(label)}</option>`;
       }).join('');
+      renderUserQuickFilterDropdown(users, selected);
+    }
+
+    function updateUserQuickFilterButtonLabel(selectedCount = 0) {
+      const button = document.getElementById('qUsersButton');
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (!selectedCount) {
+        button.textContent = 'All users';
+        return;
+      }
+      button.textContent = selectedCount === 1 ? '1 user selected' : `${selectedCount} users selected`;
+    }
+
+    function renderUserQuickFilterDropdown(users = [], selected = new Set()) {
+      const menu = document.getElementById('qUsersMenu');
+      if (!(menu instanceof HTMLElement)) return;
+      if (!users.length) {
+        menu.innerHTML = "<div class='multi-filter-empty'>No users available</div>";
+        updateUserQuickFilterButtonLabel(0);
+        return;
+      }
+      menu.innerHTML = users.map(user => {
+        const userId = String(user?.id || '').trim();
+        const label = String(user?.name || user?.full_name || user?.email || userId).trim() || userId;
+        const checked = selected.has(userId) ? 'checked' : '';
+        return `
+          <label class='multi-filter-option'>
+            <input type='checkbox' data-user-filter-id='${userId.replace(/"/g, '&quot;')}' ${checked} onchange='toggleUserQuickFilterOption(this)' />
+            <span>${escapeHtml(label)}</span>
+          </label>
+        `;
+      }).join('');
+      updateUserQuickFilterButtonLabel(selected.size);
+    }
+
+    function toggleUsersDropdown(event) {
+      if (event) event.stopPropagation();
+      const menu = document.getElementById('qUsersMenu');
+      const button = document.getElementById('qUsersButton');
+      if (!(menu instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return;
+      const opening = menu.classList.contains('hidden');
+      menu.classList.toggle('hidden', !opening);
+      button.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    }
+
+    function closeUsersDropdown() {
+      const menu = document.getElementById('qUsersMenu');
+      const button = document.getElementById('qUsersButton');
+      if (!(menu instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return;
+      menu.classList.add('hidden');
+      button.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleUserQuickFilterOption(inputEl) {
+      const userId = String(inputEl?.dataset?.userFilterId || '').trim();
+      const checked = !!inputEl?.checked;
+      const select = document.getElementById('qUsers');
+      if (!(select instanceof HTMLSelectElement) || !userId) return;
+      const option = Array.from(select.options || []).find(opt => String(opt.value || '').trim() === userId);
+      if (option) option.selected = checked;
+      updateUserQuickFilterButtonLabel(getMultiFilterValues('qUsers').length);
+      refreshAll();
     }
 
     function matchesFilter(text, filter) {
@@ -3639,6 +3772,7 @@ __NAV_CONTROLS__
       stage: 'Stage',
       deliverable: 'Deliverable',
       campaign: 'Campaign',
+      user: 'User',
       review: 'Review',
     };
     const DEFAULT_CARD_MODULE_CONFIG = {
@@ -4661,6 +4795,19 @@ __NAV_CONTROLS__
       const cid = String(campaignId || '').trim();
       if (!type || !id) return null;
       try {
+        if (type === 'user') {
+          const data = await api(`/api/users/${encodeURIComponent(id)}/panel`);
+          if (!data) return null;
+          return {
+            module_type: 'user',
+            user: data,
+            campaign: null,
+            children_items: [],
+            open_label: 'Open',
+            open_deep_link: screenPath('people'),
+            open_path: screenPath('people'),
+          };
+        }
         if (type === 'scope') {
           const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
           const data = await api(`/api/deals${actorQ}`);
@@ -7046,99 +7193,56 @@ __NAV_CONTROLS__
     function renderMyWorkFromCache() {
       if (!myWorkCache) return;
       const grid = document.getElementById('myWorkGrid');
-      const queues = myWorkCache.queues || {};
-      const allItems = [];
-      const seenStepIds = new Set();
-      for (const items of Object.values(queues)) {
-        for (const item of (items || [])) {
-          const stepId = item?.step?.id;
-          if (!stepId || seenStepIds.has(stepId)) continue;
-          if (currentActorId && item?.step?.next_owner_user_id !== currentActorId) continue;
-          seenStepIds.add(stepId);
-          allItems.push(item);
-        }
+      const rows = Array.isArray(myWorkCache?.list_items) ? myWorkCache.list_items : [];
+      const modeEl = document.getElementById('myWorkMode');
+      const mode = String(modeEl?.value || 'owned_only').toLowerCase();
+      const filteredRows = rows.filter(row => (mode === 'owned_and_participant' ? true : !!row?.is_owned));
+      if (!grid) return;
+      if (!filteredRows.length) {
+        grid.innerHTML = "<div class='sub'>No work items.</div>";
+        const summaryEl = document.getElementById('myWorkSummary');
+        if (summaryEl) summaryEl.textContent = 'No items in current view';
+        return;
       }
-
-      const todayIso = isoDate(new Date());
-      const thisWeekStart = mondayOf(new Date());
-      const thisWeekEnd = new Date(thisWeekStart.getTime());
-      thisWeekEnd.setDate(thisWeekEnd.getDate() + 6);
-      const nextWeekStart = new Date(thisWeekStart.getTime());
-      nextWeekStart.setDate(nextWeekStart.getDate() + 7);
-      const nextWeekEnd = new Date(nextWeekStart.getTime());
-      nextWeekEnd.setDate(nextWeekEnd.getDate() + 6);
-
-      function isComplete(item) {
-        return normalizeStatusValue(item?.step?.status || item?.step?.step_state || '') === 'done';
-      }
-
-      function isBlocked(item) {
-        const status = normalizeStatusValue(item?.step?.status || item?.step?.step_state || '');
-        return status === 'blocked_client' || status === 'blocked_internal' || status === 'blocked_dependency';
-      }
-
-      function dueDate(item) {
-        const raw = item?.step?.current_due;
-        if (!raw) return null;
-        const d = parseDateLikeLocal(raw);
-        return Number.isNaN(d.getTime()) ? null : d;
-      }
-
-      function sortByDueThenName(arr) {
-        return [...arr].sort((a, b) => {
-          const da = dueDate(a);
-          const db = dueDate(b);
-          const aTime = da ? da.getTime() : Number.MAX_SAFE_INTEGER;
-          const bTime = db ? db.getTime() : Number.MAX_SAFE_INTEGER;
-          if (aTime !== bTime) return aTime - bTime;
-          return String(a?.step?.name || '').localeCompare(String(b?.step?.name || ''));
-        });
-      }
-
-      const overdue = sortByDueThenName(
-        allItems.filter(item => {
-          if (isComplete(item)) return false;
-          const due = item?.step?.current_due;
-          return !!due && due < todayIso;
-        })
-      );
-      const thisWeek = sortByDueThenName(
-        allItems.filter(item => {
-          if (isComplete(item)) return false;
-          const due = dueDate(item);
-          if (!due) return false;
-          return due >= thisWeekStart && due <= thisWeekEnd;
-        })
-      );
-      const nextWeek = sortByDueThenName(
-        allItems.filter(item => {
-          if (isComplete(item)) return false;
-          const due = dueDate(item);
-          if (!due) return false;
-          return due >= nextWeekStart && due <= nextWeekEnd;
-        })
-      );
-      const blocked = sortByDueThenName(
-        allItems.filter(item => !isComplete(item) && isBlocked(item))
-      );
-
-      const sections = [
-        ['Overdue', overdue],
-        ['This Week', thisWeek],
-        ['Next Week', nextWeek],
-        ['Blocked', blocked],
-      ];
-      grid.innerHTML = sections.map(([label, items]) => {
-        const rows = items.map(queueItemCard).join('') || "<div class='sub'>No items.</div>";
-        return `<div class='queue-card'>${queueTitle(label, items.length)}<div class='queue-list'>${rows}</div></div>`;
-      }).join('');
-
-      document.getElementById('myWorkSummary').textContent =
-        `Assigned steps ${allItems.length} · Overdue ${overdue.length} · This Week ${thisWeek.length} · Next Week ${nextWeek.length} · Blocked ${blocked.length}`;
+      const bodyRows = filteredRows.map(row => `
+        <tr>
+          <td>${escapeHtml(String(row.item_name || '-'))}</td>
+          <td>${escapeHtml(toTitle(String(row.type || '-')))}</td>
+          <td>${escapeHtml(String(row.campaign || '-'))}</td>
+          <td>${escapeHtml(toTitle(String(row.stage || '-')))}</td>
+          <td>${row.due_date ? niceDate(row.due_date) : '-'}</td>
+          <td>${escapeHtml(toTitle(String(row.status || '-').replaceAll('_', ' ')))}</td>
+          <td>${healthChip(String(row.health || 'not_started'))}</td>
+          <td>${escapeHtml(String(row.dependency_blocker || '-'))}</td>
+          <td>${row.planned_work_date ? niceDate(row.planned_work_date) : '-'}</td>
+        </tr>
+      `).join('');
+      grid.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Item name</th>
+              <th>Type</th>
+              <th>Campaign</th>
+              <th>Stage</th>
+              <th>Due date</th>
+              <th>Status</th>
+              <th>Health</th>
+              <th>Dependency/Blocker</th>
+              <th>Planned work date</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      `;
+      const summaryEl = document.getElementById('myWorkSummary');
+      if (summaryEl) summaryEl.textContent = `${filteredRows.length} items`;
     }
 
     async function renderMyWork(role, actorId) {
-      myWorkCache = await api(`/api/my-work?actor_user_id=${actorId}&role=${role}`);
+      const modeEl = document.getElementById('myWorkMode');
+      const includeMode = String(modeEl?.value || 'owned_only');
+      myWorkCache = await api(`/api/my-work?actor_user_id=${actorId}&role=${role}&include_mode=${encodeURIComponent(includeMode)}`);
       try {
         const health = await api(`/api/campaigns/health?owner=${encodeURIComponent(actorId)}&limit=500&offset=0`);
         campaignHealthByCampaignId = {};
@@ -7652,6 +7756,65 @@ Cancel = Abort save`
         log('Auto campaign status update failed', String(err));
       } finally {
         setPillDropdownSaving(dropdownEl, false);
+      }
+    }
+
+    async function cascadeCampaignDescendantStatus(campaignId) {
+      const cid = String(campaignId || '').trim();
+      if (!cid) {
+        toast('Campaign id missing', 'error');
+        return;
+      }
+      if (!currentActorId) {
+        toast('No active actor selected', 'error');
+        return;
+      }
+      if (!canUseControl('manage_campaign_status', currentRole)) {
+        toast('You do not have permission to cascade campaign statuses', 'error');
+        return;
+      }
+      const allowed = ['not_started', 'in_progress', 'on_hold', 'blocked_client', 'blocked_internal', 'blocked_dependency', 'done', 'cancelled'];
+      const typedStatus = String(window.prompt(
+        `Cascade status to all steps under this campaign.\n\nAllowed values:\n${allowed.join(', ')}\n\nEnter status:`,
+        'in_progress',
+      ) || '').trim().toLowerCase();
+      if (!typedStatus) return;
+      if (!allowed.includes(typedStatus)) {
+        toast('Unsupported status for cascade', 'error');
+        return;
+      }
+      try {
+        const preview = await api(`/api/campaigns/${encodeURIComponent(cid)}/status/cascade`, {
+          method: 'POST',
+          body: JSON.stringify({
+            actor_user_id: currentActorId,
+            status: typedStatus,
+            dry_run: true,
+          }),
+        });
+        const warning = `This will update ${preview.steps_to_update || 0} steps across ${preview.stages_impacted || 0} stages.\n\nType exactly:\n${preview.confirmation_required}\n\nto proceed.`;
+        const confirmationPhrase = String(window.prompt(warning, '') || '').trim();
+        if (!confirmationPhrase) return;
+        await api(`/api/campaigns/${encodeURIComponent(cid)}/status/cascade`, {
+          method: 'POST',
+          body: JSON.stringify({
+            actor_user_id: currentActorId,
+            status: typedStatus,
+            dry_run: false,
+            confirmation_phrase: confirmationPhrase,
+          }),
+        });
+        toast('Campaign descendant statuses updated', 'success');
+        await runCampaignAwareRefresh(async () => {
+          await renderCampaigns();
+        });
+        if (panelPayload && String(panelPayload?.module_type || '').toLowerCase() === 'campaign') {
+          const refreshed = await fetchObjectPanelPayload('campaign', cid, cid);
+          if (refreshed) openObjectPanelByPayload(refreshed);
+        }
+      } catch (err) {
+        toast(`Unable to cascade status: ${String(err)}`, 'error');
+        log('Campaign status cascade failed', String(err));
       }
     }
 
@@ -8649,7 +8812,7 @@ Cancel = Abort`
                 <td>${escapeHtml(u.email || '-')}</td>
                 <td><span class='tag'>${teamLabel(u.primary_team)}</span></td>
                 <td><span class='tag'>${seniorityLabel(u.seniority)}</span></td>
-                <td><span class='tag'>${appRoleLabel(u.app_role)}</span></td>
+                <td><span class='tag'>${appRoleLabel(u.app_role)}</span> <button type='button' class='ghost' onclick="openObjectPanelChild('user','${escapeHtml(String(u.id || ''))}','')">Details</button></td>
               </tr>
             `).join('') || "<tr><td colspan='5' class='sub'>No people match these filters.</td></tr>"}
           </tbody>
@@ -8794,6 +8957,7 @@ Cancel = Abort`
       if (type === 'stage') return campaignsPathWithTarget({ targetType: 'stage', targetId: id, campaignId: cid, expand: 'work' });
       if (type === 'deliverable') return campaignsPathWithTarget({ targetType: 'deliverable', targetId: id, campaignId: cid, expand: 'deliverables' });
       if (type === 'step') return campaignsPathWithTarget({ targetType: 'step', targetId: id, campaignId: cid, expand: 'work' });
+      if (type === 'user') return '/people';
       return '/campaigns';
     }
 
@@ -11236,10 +11400,15 @@ Cancel = Abort`
         : type === 'campaign' ? payload.campaign
         : type === 'stage' ? payload.stage
         : type === 'deliverable' ? payload.deliverable
+        : type === 'user' ? payload.user
         : payload.step;
       const title = String(source?.title || source?.name || source?.client_name || source?.id || MODULE_TYPE_LABELS[type] || 'Object');
+      const userTeam = type === 'user'
+        ? [source?.team, source?.editorial_subteam ? String(source.editorial_subteam).toUpperCase() : ''].filter(Boolean).join(' · ')
+        : '';
       const subtitle = String(
-        source?.campaign_name
+        userTeam
+        || source?.campaign_name
         || payload?.campaign?.title
         || source?.id
         || ''
@@ -11649,6 +11818,11 @@ Cancel = Abort`
       const editing = objectPanelIsEditing(payload);
       const canSave = editing && objectPanelCanSave(meta);
       const saveBtn = canSave ? `<button id='objectPanelSaveBtn' class='primary' onclick='saveObjectPanelEdits()'>Save</button>` : '';
+      const campaignId = String(payload?.campaign?.id || payload?.campaign?.campaign_id || '').trim();
+      const showCampaignCascade = meta.type === 'campaign' && !!campaignId && canUseControl('manage_campaign_status', currentRole);
+      const campaignButtons = showCampaignCascade
+        ? `<button onclick="cascadeCampaignDescendantStatus('${campaignId.replace(/'/g, '&#39;')}')">Cascade Descendant Status</button>`
+        : '';
       const scopeStatus = String(payload?.scope?.status || '').toLowerCase();
       const scopeId = String(payload?.scope?.id || '').trim();
       const safeScopeId = scopeId.replace(/'/g, '&#39;');
@@ -11674,6 +11848,7 @@ Cancel = Abort`
         </div>
         <div class='object-panel-footer-right'>
           ${saveBtn}
+          ${campaignButtons}
           ${scopeButtons}
           ${openBtn}
         </div>
@@ -11727,6 +11902,7 @@ Cancel = Abort`
       if (type === 'stage') return String(payload?.stage?.id || payload?.stage?.display_id || '').trim();
       if (type === 'deliverable') return String(payload?.deliverable?.id || payload?.deliverable?.display_id || '').trim();
       if (type === 'step') return String(payload?.step?.id || payload?.step?.display_id || '').trim();
+      if (type === 'user') return String(payload?.user?.id || '').trim();
       return String(
         payload?.scope?.id
         || payload?.campaign?.id
@@ -11737,6 +11913,7 @@ Cancel = Abort`
         || payload?.deliverable?.display_id
         || payload?.step?.id
         || payload?.step?.display_id
+        || payload?.user?.id
         || ''
       ).trim();
     }
@@ -11838,6 +12015,29 @@ Cancel = Abort`
           openPath: payload.open_deep_link || popoverOpenDeepLinkForPayload(payload) || payload.open_path || null,
           openLabel: payload.open_label || 'Open',
         });
+      } else if (payload.module_type === 'user' && payload.user) {
+        const u = payload.user || {};
+        const capRows = Array.isArray(u?.capacity?.rows) ? u.capacity.rows : [];
+        const campaigns = Array.isArray(u?.campaigns_participated) ? u.campaigns_participated : [];
+        moduleHtml = `
+          <div class='module-popover' data-module='user'>
+            <div class='module-head'>
+              <div class='module-head-left'>
+                <span class='module-icon'>U</span>
+                <div class='module-title-block'>
+                  <div class='module-title'>${escapeHtml(String(u.name || '-'))}</div>
+                  <div class='module-subtitle'>User</div>
+                </div>
+              </div>
+            </div>
+            <div class='module-fields module-body'>
+              <div class='module-row'><span>Name:</span><span>${escapeHtml(String(u.name || '-'))}</span></div>
+              <div class='module-row'><span>Team:</span><span>${escapeHtml(toTitle(String(u.team || '-').replaceAll('_', ' ')))}${u.editorial_subteam ? ` (${escapeHtml(String(u.editorial_subteam).toUpperCase())})` : ''}</span></div>
+              <div class='module-row span-2'><span>Capacity:</span><span>${capRows.slice(0, 4).map(r => `${niceDate(r.week_start)} ${Number(r.utilization_pct || 0).toFixed(0)}%`).join(' · ') || '-'}</span></div>
+              <div class='module-row span-2'><span>Campaigns participated:</span><span>${campaigns.map(c => escapeHtml(String(c.title || c.id || '-'))).join(', ') || '-'}</span></div>
+            </div>
+          </div>
+        `;
       }
       panelPayload = payload;
       panelOpen = true;
@@ -12484,6 +12684,11 @@ Cancel = Abort`
         start_week: capacityStartWeek,
         include_items: capacityShowItems ? 'true' : 'false',
       });
+      if (currentActorId) q.set('actor_user_id', String(currentActorId));
+      const actorSeniority = String(currentActorIdentity?.seniority || '').toLowerCase();
+      if (actorSeniority === 'manager' || actorSeniority === 'leadership') {
+        q.set('team_scope', 'managed');
+      }
       const data = await api(`/api/capacity/matrix?${q.toString()}`);
       capacityMatrixData = data;
       capacityStartWeek = data.start_week;
@@ -12944,7 +13149,21 @@ Cancel = Abort`
         if (!el) continue;
         el.classList.toggle('hidden', !visible);
       }
+      applyQuickFilterVisibility();
       applyControlVisibility();
+    }
+
+    function setFilterPairVisibility(selectId, visible) {
+      const selectEl = document.getElementById(selectId);
+      const labelEl = document.querySelector(`label[for='${selectId}']`);
+      if (selectEl) selectEl.classList.toggle('hidden', !visible);
+      if (labelEl) labelEl.classList.toggle('hidden', !visible);
+    }
+
+    function applyQuickFilterVisibility() {
+      const screen = String(currentScreen || '').toLowerCase();
+      setFilterPairVisibility('qScopeHealth', screen === 'deals');
+      setFilterPairVisibility('qCampaignHealth', screen === 'campaigns');
     }
 
     function selectDeliverableForHistory(deliverableId) {
@@ -13401,6 +13620,9 @@ Cancel = Abort`
     document.addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
+      if (!target.closest('#qUsersDropdown')) {
+        closeUsersDropdown();
+      }
 
       const listToggle = target.closest('[data-list-toggle]');
       if (listToggle instanceof HTMLElement) {
@@ -13550,6 +13772,7 @@ Cancel = Abort`
     document.addEventListener('keydown', (event) => {
       const key = event.key;
       if (key === 'Escape') {
+        closeUsersDropdown();
         closeAllModuleOptionMenus();
         closeAllPillDropdowns();
         closeObjectPanel();

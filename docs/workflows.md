@@ -82,6 +82,11 @@ Typical flow:
 3. an override can be requested
 4. the override is reviewed and approved or rejected
 
+Primary scheduling signal:
+
+- capacity now keys work to step `planned_work_date` (with temporary migration fallback to start dates)
+- team weekly aggregates are exposed for manager views
+
 ## Health rollup workflow
 
 Health is not a cosmetic field. It is constrained by stage-level conditions.
@@ -91,6 +96,19 @@ Rule:
 - if any stage is Off Track, the parent campaign cannot be On Track
 
 This means campaign health should be derived or validated from lower-level operational state.
+
+Status override reset behaviour:
+
+- parent status is derived by default
+- manual parent override is explicit and flagged
+- when descendants change, parent status resets back to derived
+
+## Milestone workflow
+
+- milestones are stage-linked checkpoints and do not follow step dependency auto-moves
+- SLA health is computed from due date vs completion date only
+- if campaign start date changes, milestone due dates re-anchor from stored start offsets
+- manual SLA override is restricted to superadmin
 
 ## Example API sequence
 

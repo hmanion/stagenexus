@@ -184,7 +184,7 @@ class OpsJobService:
             if not campaign_id:
                 continue
 
-            week_start = self._week_start(step.current_start or step.baseline_start or step.created_at.date())
+            week_start = self._week_start(step.planned_work_date or step.current_start or step.baseline_start or step.created_at.date())
             step_efforts = [e for e in efforts_by_step.get(step.id, []) if float(e.hours or 0.0) > 0.0]
             if not step_efforts:
                 step_efforts = [

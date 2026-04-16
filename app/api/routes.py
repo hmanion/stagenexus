@@ -26,6 +26,7 @@ from app.models.domain import (
     DeliverableStatus,
     GlobalHealth,
     GlobalStatus,
+    MilestoneSlaHealth,
     BenchmarkTarget,
     Escalation,
     ManualRisk,
@@ -56,7 +57,13 @@ from app.models.domain import (
     WorkflowStepEffort,
     WorkflowStepDependency,
 )
-from app.schemas.campaigns import CampaignAssignmentsUpdateIn, CampaignDatesUpdateIn, CampaignOut, CampaignStatusUpdateIn
+from app.schemas.campaigns import (
+    CampaignAssignmentsUpdateIn,
+    CampaignDatesUpdateIn,
+    CampaignDescendantStatusBulkIn,
+    CampaignOut,
+    CampaignStatusUpdateIn,
+)
 from app.schemas.admin import (
     AdminUserCreateIn,
     AdminUserRolesUpdateIn,
@@ -69,9 +76,12 @@ from app.schemas.deals import (
     OpsApproveIn,
     ScopeAmUpdateIn,
     ScopeContentUpdateIn,
+    ScopeDeleteIn,
+    ScopeTimeframeUpdateIn,
     SowChangeApproveIn,
     SowChangeCreateIn,
 )
+from app.schemas.milestones import MilestoneCompletionUpdateIn, MilestoneSlaOverrideIn, MilestoneUpdateIn
 from app.schemas.deliverables import (
     CapacityOverrideDecisionIn,
     CapacityOverrideRequestIn,
@@ -90,7 +100,9 @@ from app.services.capacity_override_service import CapacityOverrideService
 from app.services.capacity_service import CapacityService
 from app.services.change_control_service import ChangeControlService
 from app.services.deliverable_workflow_service import DeliverableWorkflowService
+from app.services.deliverable_derivation_service import DeliverableDerivationService
 from app.services.deal_service import DealService
+from app.services.milestone_service import MilestoneService
 from app.services.ops_job_service import OpsJobService
 from app.services.workflow_engine_service import WorkflowEngineService
 from app.services.id_service import PublicIdService
@@ -100,6 +112,8 @@ from app.services.ops_defaults_service import OpsDefaultsService
 from app.services.campaign_health_service import CampaignHealthService
 from app.services.timeline_health_service import TimelineHealthService
 from app.services.stage_integrity_service import StageIntegrityService
+from app.services.status_rollup_service import StatusRollupService
+from app.services.team_inference_service import TeamInferenceService
 
 
 router = APIRouter(prefix="/api", tags=["campaign-ops"])
@@ -182,6 +196,19 @@ def _evaluate_deliverable_health(db: Session, deliverable: Deliverable) -> dict[
     }
 
 
+def _derived_deliverable_status(db: Session, deliverable: Deliverable) -> str:
+    stage = DeliverableDerivationService(db).derive_operational_stage_status(deliverable)
+    if stage == DeliverableStage.PLANNING:
+        linked_steps = db.scalars(select(WorkflowStep).where(WorkflowStep.linked_deliverable_id == deliverable.id)).all()
+        has_in_progress = any(
+            str((s.normalized_status.value if hasattr(s.normalized_status, "value") else s.normalized_status) or "").lower() == "in_progress"
+            for s in linked_steps
+        )
+        if not has_in_progress:
+            return "not_started"
+    return stage.value
+
+
 def _evaluate_deliverable_health_batch(db: Session, deliverables: list[Deliverable]) -> dict[str, dict[str, Any]]:
     if not deliverables:
         return {}
@@ -216,6 +243,7 @@ def _evaluate_deliverable_health_batch(db: Session, deliverables: list[Deliverab
         efforts_by_step.setdefault(effort.workflow_step_id, []).append(effort)
 
     timeline_health = TimelineHealthService(db)
+    team_inference = TeamInferenceService(db)
     payload_by_identifier: dict[str, dict[str, Any]] = {}
     for deliverable in deliverables:
         campaign = campaigns_by_id.get(deliverable.campaign_id) if deliverable.campaign_id else None
@@ -415,6 +443,8 @@ def _normalize_health(value: str | None) -> GlobalHealth:
 
 
 def _deliverable_stage_from_record(deliverable: Deliverable) -> DeliverableStage:
+    if getattr(deliverable, "operational_stage_status", None):
+        return deliverable.operational_stage_status
     if deliverable.stage:
         return deliverable.stage
     dtype = deliverable.deliverable_type.value
@@ -434,7 +464,9 @@ def _step_module_type(_: WorkflowStep) -> str:
 def _campaign_timeframe_from_milestones(milestones: list[Milestone]) -> tuple[str | None, str | None]:
     targets: list[date] = []
     for m in milestones:
-        if m.current_target_date:
+        if m.due_date:
+            targets.append(m.due_date)
+        elif m.current_target_date:
             targets.append(m.current_target_date)
         elif m.baseline_date:
             targets.append(m.baseline_date)
@@ -662,6 +694,54 @@ def _delete_campaign_graph(db: Session, campaign_id: str) -> dict[str, int]:
 
     campaign_res = db.execute(delete(Campaign).where(Campaign.id == campaign_id))
     deleted["campaigns"] += int(campaign_res.rowcount or 0)
+    return deleted
+
+
+def _delete_scope_graph(db: Session, deal_id: str) -> dict[str, int]:
+    deleted = {
+        "campaign_graph": 0,
+        "campaigns": 0,
+        "product_lines": 0,
+        "attachments": 0,
+        "activity_logs": 0,
+        "comments": 0,
+        "notes": 0,
+        "scopes": 0,
+    }
+    campaign_ids = db.scalars(select(Campaign.id).where(Campaign.deal_id == deal_id)).all()
+    for cid in campaign_ids:
+        result = _delete_campaign_graph(db, cid)
+        deleted["campaign_graph"] += sum(int(v or 0) for v in result.values())
+        deleted["campaigns"] += int(result.get("campaigns", 0))
+
+    pl_res = db.execute(delete(DealProductLine).where(DealProductLine.deal_id == deal_id))
+    deleted["product_lines"] += int(pl_res.rowcount or 0)
+    at_res = db.execute(delete(DealAttachment).where(DealAttachment.deal_id == deal_id))
+    deleted["attachments"] += int(at_res.rowcount or 0)
+
+    activity_res = db.execute(
+        delete(ActivityLog).where(
+            ActivityLog.entity_type == "scope",
+            ActivityLog.entity_id == deal_id,
+        )
+    )
+    deleted["activity_logs"] += int(activity_res.rowcount or 0)
+    comments_res = db.execute(
+        delete(Comment).where(
+            Comment.entity_type == "scope",
+            Comment.entity_id == deal_id,
+        )
+    )
+    deleted["comments"] += int(comments_res.rowcount or 0)
+    notes_res = db.execute(
+        delete(Note).where(
+            Note.entity_type == "scope",
+            Note.entity_id == deal_id,
+        )
+    )
+    deleted["notes"] += int(notes_res.rowcount or 0)
+    scope_res = db.execute(delete(Deal).where(Deal.id == deal_id))
+    deleted["scopes"] += int(scope_res.rowcount or 0)
     return deleted
 
 
@@ -933,6 +1013,81 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
         "campaign_objective": deal.campaign_objective,
         "messaging_positioning": deal.messaging_positioning,
     }
+
+
+@router.patch("/deals/{deal_id}/timeframe")
+@router.patch("/scopes/{deal_id}/timeframe")
+def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Session = Depends(get_db)):
+    deal = _resolve_by_identifier(db, Deal, deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="scope not found")
+    actor = AuthzService(db).actor(payload.actor_user_id)
+    if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
+        raise HTTPException(status_code=403, detail="only managers or leadership can update scope timeframe")
+    if payload.sow_start_date is None and payload.sow_end_date is None:
+        raise HTTPException(status_code=400, detail="at least one date is required")
+
+    calendar = build_default_working_calendar()
+    old_start = deal.sow_start_date
+    old_end = deal.sow_end_date
+    if payload.sow_start_date is not None:
+        deal.sow_start_date = calendar.next_working_day_on_or_after(payload.sow_start_date)
+    if payload.sow_end_date is not None:
+        deal.sow_end_date = calendar.next_working_day_on_or_after(payload.sow_end_date)
+    if deal.sow_start_date and deal.sow_end_date and deal.sow_end_date < deal.sow_start_date:
+        deal.sow_end_date = deal.sow_start_date
+
+    db.add(
+        ActivityLog(
+            display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
+            actor_user_id=payload.actor_user_id,
+            entity_type="scope",
+            entity_id=deal.id,
+            action="scope_timeframe_updated",
+            meta_json={
+                "scope_id": deal.display_id,
+                "old_sow_start_date": old_start.isoformat() if old_start else None,
+                "old_sow_end_date": old_end.isoformat() if old_end else None,
+                "new_sow_start_date": deal.sow_start_date.isoformat() if deal.sow_start_date else None,
+                "new_sow_end_date": deal.sow_end_date.isoformat() if deal.sow_end_date else None,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "scope_id": deal.display_id,
+        "sow_start_date": deal.sow_start_date.isoformat() if deal.sow_start_date else None,
+        "sow_end_date": deal.sow_end_date.isoformat() if deal.sow_end_date else None,
+    }
+
+
+@router.delete("/deals/{deal_id}")
+@router.delete("/scopes/{deal_id}")
+def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get_db)):
+    deal = _resolve_by_identifier(db, Deal, deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="scope not found")
+    actor = AuthzService(db).actor(payload.actor_user_id)
+    if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
+        raise HTTPException(status_code=403, detail="only managers or leadership can delete scopes")
+
+    required_phrase = f"DELETE {deal.display_id}"
+    if str(payload.confirmation_phrase or "").strip() != required_phrase:
+        raise HTTPException(status_code=400, detail=f"confirmation_phrase must exactly match '{required_phrase}'")
+
+    deleted = _delete_scope_graph(db, deal.id)
+    db.add(
+        ActivityLog(
+            display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
+            actor_user_id=payload.actor_user_id,
+            entity_type="scope",
+            entity_id=deal.id,
+            action="scope_deleted",
+            meta_json={"scope_id": deal.display_id, "deleted_counts": deleted},
+        )
+    )
+    db.commit()
+    return {"deleted": True, "scope_id": deal.display_id, "counts": deleted}
 
 
 @router.post("/deals/{deal_id}/ops-approve", response_model=DealOut)
@@ -1315,6 +1470,7 @@ def list_deals(
                     }
                     for attachment in scope_attachments
                 ],
+                "inferred_team_key": team_inference.infer_scope_team_key(d.id),
                 "campaigns": scope_campaigns,
                 "readiness_passed": d.readiness_passed,
                 "created_at": d.created_at.isoformat(),
@@ -1485,6 +1641,8 @@ def list_campaigns(
                 "title": c.title,
                 "scope_id": deals_by_id.get(c.deal_id).display_id if deals_by_id.get(c.deal_id) else None,
                 "status": _normalize_campaign_status(c.status).value,
+                "status_source": str(c.status_source.value if hasattr(c.status_source, "value") else c.status_source or "derived"),
+                "status_overridden_by_user_id": c.status_overridden_by_user_id,
                 "is_demand_sprint": c.is_demand_sprint,
                 "demand_sprint_number": c.demand_sprint_number,
                 "demand_track": c.demand_track,
@@ -1552,6 +1710,7 @@ def list_campaigns(
                         "title": d.title,
                         "status": _normalize_deliverable_status(d.status).value,
                         "delivery_status": d.status.value,
+                        "derived_status": _derived_deliverable_status(db, d),
                         "health": timeline_health.evaluate_deliverable(
                             deliverable=d,
                             campaign=c,
@@ -1632,6 +1791,9 @@ def list_campaigns(
                         "health": timeline_health.evaluate_step(s, campaign=c).health,
                         "current_start": s.current_start.isoformat() if s.current_start else None,
                         "current_due": s.current_due.isoformat() if s.current_due else None,
+                        "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
+                        "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
+                        "completion_date": s.completion_date.isoformat() if s.completion_date else None,
                         "next_owner_user_id": s.next_owner_user_id,
                         "owner_initials": _initials_for_user_id(s.next_owner_user_id, users_by_id),
                         "participant_initials": _participant_initials_for_step(s, step_efforts_by_step_id, users_by_id),
@@ -1881,9 +2043,13 @@ def update_campaign_status(campaign_id: str, payload: CampaignStatusUpdateIn, db
     old_status = _normalize_campaign_status(campaign.status).value
     new_status = _normalize_campaign_status(payload.status).value
     if new_status == old_status:
-        return {"campaign_id": campaign.display_id, "status": old_status}
+        return {
+            "campaign_id": campaign.display_id,
+            "status": old_status,
+            "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source or "derived"),
+        }
 
-    campaign.status = new_status
+    StatusRollupService(db).set_manual_campaign_status(campaign, new_status, payload.actor_user_id)
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
@@ -1899,7 +2065,68 @@ def update_campaign_status(campaign_id: str, payload: CampaignStatusUpdateIn, db
         )
     )
     db.commit()
-    return {"campaign_id": campaign.display_id, "status": new_status}
+    return {
+        "campaign_id": campaign.display_id,
+        "status": new_status,
+        "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source),
+    }
+
+
+@router.post("/campaigns/{campaign_id}/status/cascade")
+def bulk_update_campaign_descendant_status(campaign_id: str, payload: CampaignDescendantStatusBulkIn, db: Session = Depends(get_db)):
+    campaign = _resolve_by_identifier(db, Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="campaign not found")
+    actor = AuthzService(db).actor(payload.actor_user_id)
+    if not _actor_has_control_permission(
+        db,
+        actor,
+        "manage_campaign_status",
+        fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
+    ):
+        raise HTTPException(status_code=403, detail="insufficient role permissions")
+
+    status = str(payload.status or "").strip().lower()
+    allowed = {"not_started", "in_progress", "on_hold", "blocked_client", "blocked_internal", "blocked_dependency", "done", "cancelled"}
+    if status not in allowed:
+        raise HTTPException(status_code=400, detail="unsupported status for bulk cascade")
+
+    steps = db.scalars(select(WorkflowStep).where(WorkflowStep.campaign_id == campaign.id)).all()
+    stage_ids = sorted({s.stage_id for s in steps if s.stage_id})
+    required_phrase = f"CASCADE {campaign.display_id}"
+    if not payload.dry_run and str(payload.confirmation_phrase or "").strip() != required_phrase:
+        raise HTTPException(status_code=400, detail=f"confirmation_phrase must exactly match '{required_phrase}'")
+
+    preview = {
+        "campaign_id": campaign.display_id,
+        "requested_status": status,
+        "steps_to_update": len(steps),
+        "stages_impacted": len(stage_ids),
+        "confirmation_required": required_phrase,
+    }
+    if payload.dry_run:
+        return {"dry_run": True, **preview}
+
+    engine = WorkflowEngineService(db)
+    for step in steps:
+        engine.manage_step(
+            step_id=step.id,
+            actor_user_id=payload.actor_user_id,
+            status=status,
+        )
+    StatusRollupService(db).reset_campaign_to_derived(campaign)
+    db.add(
+        ActivityLog(
+            display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
+            actor_user_id=payload.actor_user_id,
+            entity_type="campaign",
+            entity_id=campaign.id,
+            action="campaign_descendant_status_cascade",
+            meta_json=preview,
+        )
+    )
+    db.commit()
+    return {"dry_run": False, **preview}
 
 
 @router.patch("/campaigns/{campaign_id}/dates")
@@ -1941,6 +2168,8 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
     if campaign.planned_start_date and campaign.planned_end_date and campaign.planned_end_date < campaign.planned_start_date:
         campaign.planned_end_date = campaign.planned_start_date
 
+    milestones_reanchored = MilestoneService(db).reanchor_campaign_milestones(campaign)
+
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
@@ -1962,6 +2191,7 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
         "campaign_id": campaign.display_id,
         "planned_start_date": campaign.planned_start_date.isoformat() if campaign.planned_start_date else None,
         "planned_end_date": campaign.planned_end_date.isoformat() if campaign.planned_end_date else None,
+        "milestones_reanchored": milestones_reanchored,
     }
 
 
@@ -2077,6 +2307,7 @@ def list_deliverables(
                 "module_type": "deliverable",
                 "status": _normalize_deliverable_status(d.status).value,
                 "delivery_status": d.status.value,
+                "derived_status": _derived_deliverable_status(db, d),
                 "health": timeline_health.evaluate_deliverable(
                     deliverable=d,
                     campaign=campaigns_by_id.get(d.campaign_id) if d.campaign_id else None,
@@ -2383,6 +2614,8 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
             "type": campaign.campaign_type.value,
             "tier": campaign.tier,
             "status": _normalize_campaign_status(campaign.status).value,
+            "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source or "derived"),
+            "status_overridden_by_user_id": campaign.status_overridden_by_user_id,
             "module_type": "campaign",
             "health": campaign_health_eval.health,
             "health_reason": campaign_health_eval.health_reason,
@@ -2443,6 +2676,7 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                     "type": d.deliverable_type.value,
                     "status": _normalize_deliverable_status(d.status).value,
                     "delivery_status": d.status.value,
+                    "derived_status": _derived_deliverable_status(db, d),
                     "health": timeline_health.evaluate_deliverable(
                         deliverable=d,
                         campaign=campaign,
@@ -2487,6 +2721,9 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                     "owner_initials": _initials_for_user_id(s.next_owner_user_id, users_by_id),
                     "participant_initials": _participant_initials_for_step(s, efforts_by_step, users_by_id),
                     "current_start": s.current_start.isoformat() if s.current_start else None,
+                    "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
+                    "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
+                    "completion_date": s.completion_date.isoformat() if s.completion_date else None,
                     "waiting_on_type": s.waiting_on_type.value if s.waiting_on_type else None,
                     "blocker_reason": s.blocker_reason,
                     "step_state": (
@@ -2606,12 +2843,14 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
         actor_roles=actor.roles,
         comment=payload.comment,
     )
+    DeliverableDerivationService(db).recompute_operational_stage_status(updated)
     db.commit()
     health_payload = _evaluate_deliverable_health(db, updated)
     return {
         "id": updated.display_id,
         "status": _normalize_deliverable_status(updated.status).value,
         "delivery_status": updated.status.value,
+        "derived_status": _derived_deliverable_status(db, updated),
         "health": health_payload["health"],
         "health_reason": health_payload["health_reason"],
         "buffer_working_days_remaining": health_payload["buffer_working_days_remaining"],
@@ -2789,6 +3028,7 @@ def update_deliverable_stage(deliverable_id: str, payload: DeliverableStageUpdat
 
     old_stage = _deliverable_stage_from_record(deliverable).value
     deliverable.stage = new_stage
+    deliverable.operational_stage_status = new_stage
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
@@ -2886,6 +3126,7 @@ def deliverable_history(deliverable_id: str, db: Session = Depends(get_db)):
             "title": deliverable.title,
             "status": _normalize_deliverable_status(deliverable.status).value,
             "delivery_status": deliverable.status.value,
+            "derived_status": _derived_deliverable_status(db, deliverable),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -2939,6 +3180,7 @@ def deliverable_review_windows(deliverable_id: str, db: Session = Depends(get_db
             "title": deliverable.title,
             "status": _normalize_deliverable_status(deliverable.status).value,
             "delivery_status": deliverable.status.value,
+            "derived_status": _derived_deliverable_status(db, deliverable),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -3044,6 +3286,9 @@ def list_workflow_steps(db: Session = Depends(get_db)):
                 "step_state": _step_state(s),
                 "current_start": s.current_start.isoformat() if s.current_start else None,
                 "current_due": s.current_due.isoformat() if s.current_due else None,
+                "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
+                "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
+                "completion_date": s.completion_date.isoformat() if s.completion_date else None,
                 "actual_done": s.actual_done.isoformat() if s.actual_done else None,
                 "parent_type": "stage" if s.stage_id else "campaign",
                 "next_owner_user_id": s.next_owner_user_id,
@@ -3102,6 +3347,10 @@ def list_users(db: Session = Depends(get_db)):
                 "email": u.email,
                 "roles": sorted(set(roles_map.get(u.id, []))),
                 "primary_team": u.primary_team.value,
+                "editorial_subteam": (
+                    u.editorial_subteam.value if getattr(u, "editorial_subteam", None) and hasattr(u.editorial_subteam, "value")
+                    else (str(u.editorial_subteam) if getattr(u, "editorial_subteam", None) else None)
+                ),
                 "seniority": u.seniority.value,
                 "app_role": u.app_role.value,
             }
@@ -3110,21 +3359,155 @@ def list_users(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/users/{user_id}/panel")
+def user_panel_payload(user_id: str, db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=404, detail="user not found")
+    assignments = db.scalars(select(CampaignAssignment).where(CampaignAssignment.user_id == user_id)).all()
+    campaign_ids = sorted({a.campaign_id for a in assignments if a.campaign_id})
+    campaigns = db.scalars(select(Campaign).where(Campaign.id.in_(campaign_ids))).all() if campaign_ids else []
+    weekly_rows = db.scalars(
+        select(CapacityLedger).where(CapacityLedger.user_id == user_id).order_by(CapacityLedger.week_start.desc())
+    ).all()
+    return {
+        "id": user.id,
+        "name": user.full_name,
+        "team": user.primary_team.value,
+        "editorial_subteam": (
+            user.editorial_subteam.value if getattr(user, "editorial_subteam", None) and hasattr(user.editorial_subteam, "value")
+            else (str(user.editorial_subteam) if getattr(user, "editorial_subteam", None) else None)
+        ),
+        "capacity": {
+            "rows": [
+                {
+                    "week_start": r.week_start.isoformat(),
+                    "capacity_hours": float(r.capacity_hours),
+                    "forecast_planned_hours": float(r.forecast_planned_hours),
+                    "active_planned_hours": float(r.active_planned_hours),
+                    "utilization_pct": round((float(r.forecast_planned_hours) / float(r.capacity_hours) * 100.0), 2) if float(r.capacity_hours) > 0 else 0.0,
+                }
+                for r in weekly_rows[:13]
+            ],
+        },
+        "campaigns_participated": [
+            {"id": c.display_id, "title": c.title}
+            for c in campaigns
+        ],
+    }
+
+
 @router.get("/milestones")
 def list_milestones(db: Session = Depends(get_db)):
     items = db.scalars(select(Milestone).order_by(Milestone.created_at.asc())).all()
+    milestone_service = MilestoneService(db)
+    for item in items:
+        milestone_service.refresh_sla(item)
+    db.flush()
     return {
         "items": [
             {
                 "id": m.display_id,
                 "campaign_id": m.campaign_id,
+                "stage_id": m.stage_id,
+                "owner_user_id": m.owner_user_id,
                 "name": m.name,
+                "due_date": m.due_date.isoformat() if m.due_date else None,
+                "completion_date": m.completion_date.isoformat() if m.completion_date else None,
+                "sla_health": m.sla_health.value if hasattr(m.sla_health, "value") else m.sla_health,
+                "sla_health_manual_override": bool(m.sla_health_manual_override),
                 "baseline_date": m.baseline_date.isoformat() if m.baseline_date else None,
                 "current_target_date": m.current_target_date.isoformat() if m.current_target_date else None,
                 "achieved_at": m.achieved_at.isoformat() if m.achieved_at else None,
             }
             for m in items
         ]
+    }
+
+
+@router.patch("/milestones/{milestone_id}")
+def update_milestone(milestone_id: str, payload: MilestoneUpdateIn, db: Session = Depends(get_db)):
+    milestone = _resolve_by_identifier(db, Milestone, milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="milestone not found")
+    actor = AuthzService(db).actor(payload.actor_user_id)
+    if not _actor_has_control_permission(
+        db,
+        actor,
+        "manage_campaign_dates",
+        fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
+    ):
+        raise HTTPException(status_code=403, detail="insufficient permissions to manage milestone")
+    if payload.owner_user_id is not None:
+        if payload.owner_user_id:
+            owner = db.get(User, payload.owner_user_id)
+            if not owner:
+                raise HTTPException(status_code=400, detail="owner user not found")
+        milestone.owner_user_id = payload.owner_user_id or None
+    if payload.due_date_iso is not None and payload.due_date_iso.strip():
+        due = date.fromisoformat(payload.due_date_iso.strip())
+        due = build_default_working_calendar().next_working_day_on_or_after(due)
+        milestone.due_date = due
+        milestone.current_target_date = due
+        campaign = db.get(Campaign, milestone.campaign_id) if milestone.campaign_id else None
+        if campaign and campaign.planned_start_date:
+            milestone.offset_days_from_campaign_start = (due - campaign.planned_start_date).days
+    MilestoneService(db).refresh_sla(milestone)
+    db.commit()
+    return {
+        "id": milestone.display_id,
+        "owner_user_id": milestone.owner_user_id,
+        "due_date": milestone.due_date.isoformat() if milestone.due_date else None,
+        "completion_date": milestone.completion_date.isoformat() if milestone.completion_date else None,
+        "sla_health": milestone.sla_health.value if hasattr(milestone.sla_health, "value") else milestone.sla_health,
+        "sla_health_manual_override": bool(milestone.sla_health_manual_override),
+    }
+
+
+@router.patch("/milestones/{milestone_id}/completion")
+def update_milestone_completion(milestone_id: str, payload: MilestoneCompletionUpdateIn, db: Session = Depends(get_db)):
+    milestone = _resolve_by_identifier(db, Milestone, milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="milestone not found")
+    actor = AuthzService(db).actor(payload.actor_user_id)
+    if not _actor_has_control_permission(
+        db,
+        actor,
+        "manage_step",
+        fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
+    ):
+        raise HTTPException(status_code=403, detail="insufficient permissions to complete milestone")
+    completion = date.fromisoformat(payload.completion_date_iso) if payload.completion_date_iso else None
+    MilestoneService(db).set_completion_date(milestone, completion)
+    db.commit()
+    return {
+        "id": milestone.display_id,
+        "completion_date": milestone.completion_date.isoformat() if milestone.completion_date else None,
+        "sla_health": milestone.sla_health.value if hasattr(milestone.sla_health, "value") else milestone.sla_health,
+        "sla_health_manual_override": bool(milestone.sla_health_manual_override),
+    }
+
+
+@router.patch("/milestones/{milestone_id}/sla")
+def override_milestone_sla(milestone_id: str, payload: MilestoneSlaOverrideIn, db: Session = Depends(get_db)):
+    milestone = _resolve_by_identifier(db, Milestone, milestone_id)
+    if not milestone:
+        raise HTTPException(status_code=404, detail="milestone not found")
+    service = MilestoneService(db)
+    if payload.clear_override:
+        service.clear_sla_override(milestone)
+    else:
+        try:
+            target = MilestoneSlaHealth(str(payload.sla_health).strip().lower())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid sla_health") from exc
+        service.override_sla_health(milestone, actor_user_id=payload.actor_user_id, sla_health=target)
+    db.commit()
+    return {
+        "id": milestone.display_id,
+        "sla_health": milestone.sla_health.value if hasattr(milestone.sla_health, "value") else milestone.sla_health,
+        "sla_health_manual_override": bool(milestone.sla_health_manual_override),
+        "sla_health_overridden_by_user_id": milestone.sla_health_overridden_by_user_id,
     }
 
 
@@ -3284,6 +3667,7 @@ def get_role_permissions(actor_user_id: str, db: Session = Depends(get_db)):
         "identity_permissions": identity,
         "roles": [r.value for r in RoleName],
         "teams": [t.value for t in TeamName],
+        "editorial_subteams": ["cx", "uc"],
         "seniorities": [s.value for s in SeniorityLevel],
         "app_roles": [a.value for a in AppAccessRole],
         "editable_roles": ["am", "head_ops", "cm", "cc", "dn", "mm", "admin", "leadership_viewer", "head_sales", "client"],
@@ -3349,6 +3733,7 @@ def admin_list_users(actor_user_id: str, db: Session = Depends(get_db)):
         ],
         "editable_roles": editable_roles,
         "teams": [t.value for t in TeamName],
+        "editorial_subteams": ["cx", "uc"],
         "seniorities": [s.value for s in SeniorityLevel],
         "app_roles": [a.value for a in AppAccessRole],
     }
@@ -3643,7 +4028,7 @@ def get_user_work_queue(user_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/my-work")
-def get_my_work(actor_user_id: str, role: str, db: Session = Depends(get_db)):
+def get_my_work(actor_user_id: str, role: str, include_mode: str = "owned_only", db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
     try:
@@ -3654,7 +4039,8 @@ def get_my_work(actor_user_id: str, role: str, db: Session = Depends(get_db)):
     if role_name not in actor.roles and RoleName.ADMIN not in actor.roles:
         raise HTTPException(status_code=403, detail="actor does not hold selected role")
 
-    payload = MyWorkQueueService(db).build(actor_user_id)
+    include_participant = str(include_mode or "owned_only").strip().lower() in {"owned_and_participant", "owned+participant"}
+    payload = MyWorkQueueService(db).build(actor_user_id, include_participant=include_participant)
 
     queue_items = [item for arr in (payload.get("queues") or {}).values() for item in (arr or [])]
     step_display_ids = sorted(
@@ -3733,6 +4119,7 @@ def get_my_work(actor_user_id: str, role: str, db: Session = Depends(get_db)):
         payload["queues"][key] = normalized_arr
     return {
         "role": role_name.value,
+        "include_mode": "owned_and_participant" if include_participant else "owned_only",
         **payload,
     }
 
@@ -3822,6 +4209,10 @@ def complete_workflow_step(step_id: str, payload: StepCompleteIn, db: Session = 
     authz.require_any(actor, {RoleName.CM, RoleName.CC, RoleName.CCS, RoleName.HEAD_OPS, RoleName.ADMIN})
 
     step = WorkflowEngineService(db).set_step_complete(step_id=step_id, actor_user_id=payload.actor_user_id)
+    if step.linked_deliverable_id:
+        deliverable = db.get(Deliverable, step.linked_deliverable_id)
+        if deliverable:
+            DeliverableDerivationService(db).recompute_operational_stage_status(deliverable)
     db.commit()
     return {
         "id": step.display_id,
@@ -3890,7 +4281,11 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
     )
     if touches_non_date_fields and not has_step_control:
         raise HTTPException(status_code=403, detail="insufficient role permissions")
-    if payload.current_due_iso or payload.current_start_iso:
+    existing_step = _resolve_by_identifier(db, WorkflowStep, step_id)
+    if not existing_step:
+        raise HTTPException(status_code=404, detail="workflow step not found")
+
+    if payload.current_due_iso or payload.current_start_iso or payload.planned_work_date_iso:
         can_manage_step_dates = _actor_has_control_permission(
             db,
             actor,
@@ -3904,6 +4299,16 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         )
         if not can_manage_step_dates:
             raise HTTPException(status_code=403, detail="insufficient role permissions to edit step dates")
+    if payload.completion_date_iso is not None:
+        is_owner = bool(existing_step.next_owner_user_id and existing_step.next_owner_user_id == payload.actor_user_id)
+        can_manage_completion = is_owner or _actor_has_control_permission(
+            db,
+            actor,
+            "manage_step_dates",
+            fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
+        )
+        if not can_manage_completion:
+            raise HTTPException(status_code=403, detail="only step owner can edit completion date")
     if payload.status:
         allowed = {
             "not_started",
@@ -3921,9 +4326,6 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         }
         if payload.status.strip().lower() not in allowed:
             raise HTTPException(status_code=400, detail="unsupported status action")
-    existing_step = _resolve_by_identifier(db, WorkflowStep, step_id)
-    if not existing_step:
-        raise HTTPException(status_code=404, detail="workflow step not found")
     previous_status = _normalize_step_status(existing_step).value
     previous_health = _normalize_step_health(existing_step).value
 
@@ -3936,7 +4338,13 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         blocker_reason=payload.blocker_reason,
         current_start_iso=payload.current_start_iso,
         current_due_iso=payload.current_due_iso,
+        planned_work_date_iso=payload.planned_work_date_iso,
+        completion_date_iso=payload.completion_date_iso,
     )
+    if step.linked_deliverable_id:
+        deliverable = db.get(Deliverable, step.linked_deliverable_id)
+        if deliverable:
+            DeliverableDerivationService(db).recompute_operational_stage_status(deliverable)
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
@@ -3956,6 +4364,8 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
                 "waiting_on_type": step.waiting_on_type.value if step.waiting_on_type else None,
                 "current_start": step.current_start.isoformat() if step.current_start else None,
                 "current_due": step.current_due.isoformat() if step.current_due else None,
+                "planned_work_date": step.planned_work_date.isoformat() if step.planned_work_date else None,
+                "completion_date": step.completion_date.isoformat() if step.completion_date else None,
             },
         )
     )
@@ -3988,6 +4398,8 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         "blocker_reason": step.blocker_reason,
         "current_start": step.current_start.isoformat() if step.current_start else None,
         "current_due": step.current_due.isoformat() if step.current_due else None,
+        "planned_work_date": step.planned_work_date.isoformat() if step.planned_work_date else None,
+        "completion_date": step.completion_date.isoformat() if step.completion_date else None,
         "actual_done": step.actual_done.isoformat() if step.actual_done else None,
     }
 
@@ -4039,6 +4451,8 @@ def capacity_matrix(
     granularity: str = "week",
     start_week: str | None = None,
     include_items: bool = False,
+    actor_user_id: str | None = None,
+    team_scope: str = "auto",
     db: Session = Depends(get_db),
 ):
     granularity = (granularity or "week").strip().lower()
@@ -4097,6 +4511,27 @@ def capacity_matrix(
     assigned_user_ids = set(db.scalars(select(CampaignAssignment.user_id).distinct()).all())
     user_ids = sorted(row_user_ids.union(assigned_user_ids))
     users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
+    if actor_user_id:
+        actor = AuthzService(db).actor(actor_user_id)
+        scope_mode = str(team_scope or "auto").strip().lower()
+        restrict_to_managed_team = actor.seniority == SeniorityLevel.MANAGER or (
+            actor.seniority == SeniorityLevel.LEADERSHIP and scope_mode == "managed"
+        )
+        if restrict_to_managed_team:
+            actor_team_key = TeamInferenceService.canonical_team_key(
+                actor.primary_team,
+                getattr(actor, "editorial_subteam", None),
+            )
+            allowed_user_ids = {
+                uid
+                for uid, user in users.items()
+                if TeamInferenceService.canonical_team_key(
+                    user.primary_team,
+                    getattr(user, "editorial_subteam", None),
+                ) == actor_team_key
+            }
+            user_ids = sorted(allowed_user_ids)
+            users = {uid: users[uid] for uid in user_ids}
     role_rows = (
         db.execute(
             select(UserRoleAssignment.user_id, Role.name)
@@ -4316,7 +4751,7 @@ def capacity_matrix(
             return calendar.next_working_day_on_or_after(step_date)
 
         for step in open_steps:
-            step_date = step.current_start or step.baseline_start or step.created_at.date()
+            step_date = step.planned_work_date or step.current_start or step.baseline_start or step.created_at.date()
             wk = step_date - timedelta(days=step_date.weekday())
             linked_deliverable_id = _step_linked_deliverable(step)
             d = deliverables.get(linked_deliverable_id) if linked_deliverable_id else None
@@ -4359,6 +4794,7 @@ def capacity_matrix(
                     "step_owner_user_id": step.next_owner_user_id,
                     "step_owner_role": step.owner_role.value if step.owner_role else None,
                     "start": step_date.isoformat(),
+                    "planned_work_date": step.planned_work_date.isoformat() if step.planned_work_date else step_date.isoformat(),
                     "end": item_end.isoformat(),
                     "due": step.current_due.isoformat() if step.current_due else None,
                     "planned_hours": float(effort.hours or 0.0),
@@ -4414,6 +4850,27 @@ def capacity_matrix(
         )
 
     user_rows.sort(key=lambda u: (u["user_name"] or "").lower())
+    team_weekly: dict[str, dict[str, dict[str, float]]] = {}
+    for uid in user_ids:
+        user = users.get(uid)
+        if not user:
+            continue
+        team_key = TeamInferenceService.canonical_team_key(user.primary_team, getattr(user, "editorial_subteam", None))
+        team_weekly.setdefault(team_key, {})
+        for bucket in bucket_starts:
+            key = bucket.isoformat()
+            cell = cells.get(f"{uid}:{key}") or _cell_default()
+            aggregate = team_weekly[team_key].setdefault(
+                key,
+                {"forecast_planned_hours": 0.0, "active_planned_hours": 0.0, "capacity_hours": 0.0, "utilization_pct": 0.0},
+            )
+            aggregate["forecast_planned_hours"] += float(cell["forecast_planned_hours"])
+            aggregate["active_planned_hours"] += float(cell["active_planned_hours"])
+            aggregate["capacity_hours"] += float(cell["capacity_hours"])
+    for team_key, bucket_map in team_weekly.items():
+        for key, aggregate in bucket_map.items():
+            cap = float(aggregate["capacity_hours"])
+            aggregate["utilization_pct"] = round((float(aggregate["forecast_planned_hours"]) / cap * 100.0), 2) if cap > 0 else 0.0
     if granularity == "day":
         buckets = [{"bucket_start": d.isoformat(), "bucket_type": "day"} for d in bucket_starts]
     else:
@@ -4427,6 +4884,7 @@ def capacity_matrix(
         "weeks_count": weeks,
         "granularity": granularity,
         "include_items": include_items,
+        "team_weekly": team_weekly,
         "generated_at": datetime.utcnow().isoformat(),
     }
 

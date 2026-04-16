@@ -21,3 +21,5 @@ class StepManageIn(BaseModel):
     blocker_reason: str | None = None
     current_start_iso: str | None = None
     current_due_iso: str | None = None
+    planned_work_date_iso: str | None = None
+    completion_date_iso: str | None = None

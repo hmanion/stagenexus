@@ -69,6 +69,12 @@ Typical responsibilities:
 - supports overrides, completion, and history tracking
 - is used to model detailed operational sequencing
 
+Additional scheduling fields:
+
+- `earliest_start_date` (dependency/window earliest feasible start)
+- `planned_work_date` (primary capacity planning date)
+- `completion_date` (editable completion date projection)
+
 ### Deliverable
 A concrete output item associated with a campaign.
 
@@ -80,6 +86,22 @@ Rules:
 - deliverables can move through workflow states
 - deliverables support `ready_to_publish` state changes with actor tracking
 - deliverables may be linked to one or more steps
+- deliverables have per-campaign, per-type sequence numbering (for title generation)
+- deliverables expose derived operational stage status from the most active linked stage
+
+### Milestone
+Stage-linked checkpoint entity inside campaigns.
+
+Milestone carries:
+
+- `name`
+- `stage_id`
+- `owner_user_id`
+- `due_date`
+- `completion_date`
+- `sla_health` (`met`, `missed`, `not_due`)
+- manual SLA override metadata (restricted to superadmin)
+- `offset_days_from_campaign_start` for date re-anchoring when campaign start moves
 
 ## Supporting entity groups
 

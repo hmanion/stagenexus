@@ -326,7 +326,7 @@ class StageIntegrityService:
             "planning": milestone_map.get("kickoff") or campaign.planned_start_date or campaign.created_at.date(),
             "production": milestone_map.get("content_plan") or milestone_map.get("kickoff") or campaign.planned_start_date or campaign.created_at.date(),
             "promotion": milestone_map.get("publishing") or milestone_map.get("content_plan") or campaign.planned_start_date or campaign.created_at.date(),
-            "reporting": milestone_map.get("reporting") or milestone_map.get("publishing") or campaign.planned_end_date or campaign.planned_start_date or campaign.created_at.date(),
+            "reporting": milestone_map.get("report_available") or milestone_map.get("reporting") or milestone_map.get("publishing") or campaign.planned_end_date or campaign.planned_start_date or campaign.created_at.date(),
         }
         def _step_key(step_name: str, linked_deliverable_id: str | None) -> tuple[str, str | None]:
             return (str(step_name or "").strip().lower(), linked_deliverable_id or None)

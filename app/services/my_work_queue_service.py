@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.domain import Campaign, Deliverable, DeliverableStatus, WaitingOnType, WorkflowStep
+from app.models.domain import Campaign, Deliverable, DeliverableStatus, WaitingOnType, WorkflowStep, WorkflowStepEffort
 from app.services.calendar_service import build_default_working_calendar
 
 
@@ -24,18 +24,29 @@ class MyWorkQueueService:
         self.db = db
         self.calendar = build_default_working_calendar()
 
-    def build(self, actor_user_id: str) -> dict:
+    def build(self, actor_user_id: str, *, include_participant: bool = False) -> dict:
         today = date.today()
         window_end = self.calendar.add_working_days(today, 10)
 
-        steps = self.db.scalars(
-            select(WorkflowStep)
-            .where(
-                WorkflowStep.actual_done.is_(None),
-                WorkflowStep.next_owner_user_id == actor_user_id,
+        participant_step_ids: set[str] = set()
+        if include_participant:
+            participant_step_ids = {
+                str(step_id)
+                for step_id in self.db.scalars(
+                    select(WorkflowStepEffort.workflow_step_id).where(WorkflowStepEffort.assigned_user_id == actor_user_id)
+                ).all()
+            }
+        q = select(WorkflowStep).where(WorkflowStep.actual_done.is_(None))
+        if participant_step_ids:
+            q = q.where(
+                or_(
+                    WorkflowStep.next_owner_user_id == actor_user_id,
+                    WorkflowStep.id.in_(sorted(participant_step_ids)),
+                )
             )
-            .order_by(WorkflowStep.current_due.asc())
-        ).all()
+        else:
+            q = q.where(WorkflowStep.next_owner_user_id == actor_user_id)
+        steps = self.db.scalars(q.order_by(WorkflowStep.current_due.asc())).all()
         if not steps:
             return {
                 "summary": {
@@ -102,6 +113,7 @@ class MyWorkQueueService:
                 "awaiting_internal_review": buckets.awaiting_internal_review,
                 "awaiting_client_review": buckets.awaiting_client_review,
             },
+            "list_items": self._list_rows(buckets, actor_user_id),
             "generated_at": datetime.utcnow().isoformat(),
         }
 
@@ -144,6 +156,7 @@ class MyWorkQueueService:
                 "next_owner_user_id": step.next_owner_user_id,
                 "current_start": step.current_start.isoformat() if step.current_start else None,
                 "current_due": step.current_due.isoformat() if step.current_due else None,
+                "planned_work_date": step.planned_work_date.isoformat() if step.planned_work_date else None,
                 "waiting_on_type": step.waiting_on_type.value if step.waiting_on_type else None,
                 "waiting_on_user_id": step.waiting_on_user_id,
                 "blocker_reason": step.blocker_reason,
@@ -156,6 +169,9 @@ class MyWorkQueueService:
             "campaign": {
                 "id": campaign.display_id if campaign else None,
                 "title": campaign.title if campaign else None,
+            },
+            "stage": {
+                "name": step.stage_name,
             },
             "derived": {
                 "is_overdue": is_overdue,
@@ -190,3 +206,34 @@ class MyWorkQueueService:
             score += max(0, 20 - days_until_due)
         score += min(max(waiting_age_days, 0), 20)
         return score
+
+    def _list_rows(self, buckets: QueueBuckets, actor_user_id: str) -> list[dict]:
+        rows: list[dict] = []
+        for bucket_name, items in (
+            ("now", buckets.now),
+            ("blocked", buckets.blocked),
+            ("awaiting_internal_review", buckets.awaiting_internal_review),
+            ("awaiting_client_review", buckets.awaiting_client_review),
+            ("next_10_working_days", buckets.next_10_working_days),
+        ):
+            for item in items:
+                step = item.get("step") or {}
+                deliverable = item.get("deliverable") or {}
+                campaign = item.get("campaign") or {}
+                rows.append(
+                    {
+                        "item_name": step.get("name") or deliverable.get("title") or "-",
+                        "type": step.get("step_kind") or "step",
+                        "campaign": campaign.get("title") or campaign.get("id") or "-",
+                        "stage": (item.get("stage") or {}).get("name") or "-",
+                        "due_date": step.get("current_due"),
+                        "status": "blocked" if step.get("waiting_on_type") else bucket_name,
+                        "health": "at_risk" if bool(step.get("waiting_on_type")) else ("off_track" if item.get("derived", {}).get("is_overdue") else "on_track"),
+                        "dependency_blocker": step.get("blocker_reason") or step.get("waiting_on_type") or "",
+                        "planned_work_date": step.get("planned_work_date"),
+                        "owner_user_id": step.get("next_owner_user_id"),
+                        "is_owned": step.get("next_owner_user_id") == actor_user_id,
+                        "step_id": step.get("id"),
+                    }
+                )
+        return rows

@@ -64,6 +64,11 @@ class TeamName(enum.StrEnum):
     CLIENT_SERVICES = "client_services"
 
 
+class EditorialSubteam(enum.StrEnum):
+    CX = "cx"
+    UC = "uc"
+
+
 class SeniorityLevel(enum.StrEnum):
     STANDARD = "standard"
     MANAGER = "manager"
@@ -158,6 +163,11 @@ class GlobalStatus(enum.StrEnum):
     CANCELLED = "cancelled"
 
 
+class StatusSource(enum.StrEnum):
+    DERIVED = "derived"
+    MANUAL = "manual"
+
+
 class DeliverableStage(enum.StrEnum):
     PLANNING = "planning"
     PRODUCTION = "production"
@@ -196,6 +206,12 @@ class ApprovalStatus(enum.StrEnum):
     REJECTED = "rejected"
 
 
+class MilestoneSlaHealth(enum.StrEnum):
+    MET = "met"
+    MISSED = "missed"
+    NOT_DUE = "not_due"
+
+
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
@@ -203,6 +219,9 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     primary_team: Mapped[TeamName] = mapped_column(Enum(TeamName), default=TeamName.CLIENT_SERVICES, nullable=False)
+    editorial_subteam: Mapped[EditorialSubteam | None] = mapped_column(
+        Enum(EditorialSubteam, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False)
+    )
     seniority: Mapped[SeniorityLevel] = mapped_column(Enum(SeniorityLevel), default=SeniorityLevel.STANDARD, nullable=False)
     app_role: Mapped[AppAccessRole] = mapped_column(Enum(AppAccessRole), default=AppAccessRole.USER, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -321,6 +340,13 @@ class Campaign(Base, TimestampMixin):
     tier: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(64), default="not_started", nullable=False)
+    status_source: Mapped[StatusSource] = mapped_column(
+        Enum(StatusSource, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
+        default=StatusSource.DERIVED,
+        nullable=False,
+    )
+    status_overridden_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    status_overridden_at: Mapped[datetime | None] = mapped_column(DateTime)
     planned_start_date: Mapped[date | None] = mapped_column(Date)
     planned_end_date: Mapped[date | None] = mapped_column(Date)
     is_demand_sprint: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -377,6 +403,12 @@ class Deliverable(Base, TimestampMixin):
         default=DeliverableStage.PLANNING,
         nullable=False,
     )
+    operational_stage_status: Mapped[DeliverableStage] = mapped_column(
+        Enum(DeliverableStage, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
+        default=DeliverableStage.PLANNING,
+        nullable=False,
+    )
+    sequence_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     current_start: Mapped[date | None] = mapped_column(Date)
     baseline_due: Mapped[date | None] = mapped_column(Date)
@@ -431,6 +463,8 @@ class WorkflowStep(Base, TimestampMixin):
     owner_role: Mapped[RoleName] = mapped_column(Enum(RoleName), nullable=False)
     planned_hours: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     planned_hours_baseline: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    earliest_start_date: Mapped[date | None] = mapped_column(Date)
+    planned_work_date: Mapped[date | None] = mapped_column(Date)
     baseline_start: Mapped[date | None] = mapped_column(Date)
     baseline_due: Mapped[date | None] = mapped_column(Date)
     current_start: Mapped[date | None] = mapped_column(Date)
@@ -464,6 +498,13 @@ class Stage(Base, TimestampMixin):
         default=GlobalStatus.NOT_STARTED,
         nullable=False,
     )
+    status_source: Mapped[StatusSource] = mapped_column(
+        Enum(StatusSource, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
+        default=StatusSource.DERIVED,
+        nullable=False,
+    )
+    status_overridden_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    status_overridden_at: Mapped[datetime | None] = mapped_column(DateTime)
     health: Mapped[GlobalHealth] = mapped_column(
         Enum(GlobalHealth, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
         default=GlobalHealth.NOT_STARTED,
@@ -567,7 +608,20 @@ class Milestone(Base, TimestampMixin):
     display_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     campaign_id: Mapped[str | None] = mapped_column(ForeignKey("campaigns.id"))
     sprint_id: Mapped[str | None] = mapped_column(ForeignKey("sprints.id"))
+    stage_id: Mapped[str | None] = mapped_column(ForeignKey("stages.id"))
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    completion_date: Mapped[date | None] = mapped_column(Date)
+    sla_health: Mapped[MilestoneSlaHealth] = mapped_column(
+        Enum(MilestoneSlaHealth, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
+        default=MilestoneSlaHealth.NOT_DUE,
+        nullable=False,
+    )
+    sla_health_manual_override: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sla_health_overridden_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    sla_health_overridden_at: Mapped[datetime | None] = mapped_column(DateTime)
+    offset_days_from_campaign_start: Mapped[int | None] = mapped_column(Integer)
     baseline_date: Mapped[date | None] = mapped_column(Date)
     current_target_date: Mapped[date | None] = mapped_column(Date)
     achieved_at: Mapped[datetime | None] = mapped_column(DateTime)
