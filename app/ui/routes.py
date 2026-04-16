@@ -756,6 +756,60 @@ def index() -> str:
       align-items: end;
       background: var(--surface-2);
     }
+    .line-item .inline-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .line-item .inline-field label {
+      margin: 0;
+      white-space: nowrap;
+    }
+    .line-item .inline-field select,
+    .line-item .inline-field input {
+      flex: 1;
+      min-width: 0;
+    }
+    #productLines .line-item {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) 96px;
+      align-items: start;
+      gap: 10px;
+    }
+    #productLines .line-item > .field:nth-of-type(odd) {
+      grid-column: 1;
+    }
+    #productLines .line-item > .field:nth-of-type(even) {
+      grid-column: 2;
+    }
+    #productLines .line-item .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 36px;
+      min-width: 0;
+    }
+    #productLines .line-item .field label {
+      margin: 0;
+      width: 112px;
+      min-width: 112px;
+      white-space: nowrap;
+    }
+    #productLines .line-item .field select,
+    #productLines .line-item .field input {
+      flex: 1;
+      min-width: 0;
+      height: 36px;
+    }
+    #productLines .line-item > button {
+      grid-column: 3;
+      grid-row: 1 / -1;
+      justify-self: end;
+      align-self: center;
+      width: 96px;
+      min-width: 96px;
+      height: 36px;
+      white-space: nowrap;
+    }
     .queue-grid {
       display: grid;
       gap: 10px;
@@ -2715,6 +2769,7 @@ def index() -> str:
       .row { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: 1fr; }
       .line-item { grid-template-columns: 1fr; }
+      #productLines .line-item { grid-template-columns: repeat(2, minmax(0, 1fr)) 96px; }
       .queue-grid { grid-template-columns: 1fr; }
       .activity-risk-grid { grid-template-columns: 1fr; }
       .app-shell { padding-bottom: 140px; }
@@ -4390,11 +4445,14 @@ __NAV_CONTROLS__
         || source?.display_id
         || id
       ).trim();
+      const displayTitle = type === 'stage'
+        ? formatStageLabel(title || id, title || id || '-')
+        : (title || id);
       return {
         module_type: type,
         id,
         campaign_id: String(campaignId || source?.campaign_id || '').trim(),
-        title: title || id,
+        title: displayTitle,
         status,
       };
     }
@@ -4457,7 +4515,10 @@ __NAV_CONTROLS__
         const type = String(child?.module_type || '').toLowerCase();
         const id = String(child?.id || '').trim();
         const campaignId = String(child?.campaign_id || '').trim();
-        const rowTitle = String(child?.title || id || '-').trim() || '-';
+        const rawTitle = String(child?.title || id || '-').trim() || '-';
+        const rowTitle = type === 'stage'
+          ? formatStageLabel(rawTitle, rawTitle || '-')
+          : rawTitle;
         const status = normalizeStatusValue(child?.status || 'not_started');
         if (!type || !id) return '';
         const dotClass = progressStatusClass(status);
@@ -5620,12 +5681,13 @@ __NAV_CONTROLS__
       const type = String(payload?.module_type || '').toLowerCase().trim();
       const byRole = campaignAssignmentsByRoleForPanel(payload);
       const objectId = String(
-        payload?.campaign?.id
-        || payload?.campaign?.campaign_id
-        || payload?.stage?.id
-        || payload?.stage?.display_id
-        || payload?.step?.id
-        || ''
+        type === 'step'
+          ? (payload?.step?.id || payload?.step?.display_id || '')
+          : type === 'stage'
+            ? (payload?.stage?.id || payload?.stage?.display_id || '')
+            : type === 'campaign'
+              ? (payload?.campaign?.id || payload?.campaign?.campaign_id || '')
+              : (payload?.scope?.id || payload?.scope?.display_id || '')
       ).trim();
       const campaignId = String(
         payload?.campaign?.id
@@ -5732,7 +5794,7 @@ __NAV_CONTROLS__
           `
           : panelTeamUserHtml({ ...ownerUser, isOwner: true });
         const rows = [{
-          label: `Owner - ${hoursLabel(hoursByRole[ownerRole] || 0)}`,
+          label: roleHoursLabel(ownerRole || 'owner', hoursByRole[ownerRole] || 0),
           valueHtml: ownerValueHtml,
         }];
         const extraRoles = Object.keys(hoursByRole)
@@ -5788,7 +5850,7 @@ __NAV_CONTROLS__
       const panelMode = !!opts.panel;
       const editMode = (panelMode || !opts.popover) && isModuleEditing('step', stepObjId);
       const showControls = canManageStep;
-      const canEditOwner = canManageStep && editMode;
+      const canEditOwner = canManageStep && editMode && !panelMode;
       const canEditStepDates = (panelMode || !opts.popover)
         && (canUseControl('manage_step_dates', currentRole) || canUseControl('override_step_due', currentRole))
         && editMode;
@@ -5849,7 +5911,7 @@ __NAV_CONTROLS__
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_start' data-slot='timeframe_start'>${start !== '-' ? `${start} →` : ''}</span>`,
         `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_end' data-slot='timeframe_end'>${due}</span>`,
         `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: step.next_owner_user_id || '' })}</span>`,
-        `<span class='module-summary-text summary-secondary summary-slot slot-stage' data-slot='stage'>${String(step.stage || step.stage_name || '').replace(/_/g, ' ')}</span>`,
+        `<span class='module-summary-text summary-secondary summary-slot slot-stage' data-slot='stage'>${formatStageLabel(step.stage || step.stage_name || '', '')}</span>`,
         `<span class='module-summary-right summary-slot slot-campaign_id' data-slot='campaign_id'>${campaignSummaryId}</span>`,
       ].filter(Boolean).join('');
       const summaryInlineHtml = opts.popover ? '' : `<div class='module-summary-inline module-summary-grid step-summary-grid'>${summaryParts}</div>`;
@@ -5863,7 +5925,7 @@ __NAV_CONTROLS__
         actionsHtml: openButton || '',
       });
       const stageObjectId = String(stageRef?.id || stageRef?.display_id || step.stage_id || '').trim();
-      const stageName = panelDetailValueText(stageRef?.name || step.stage_name || step.stage || '-', '-');
+      const stageName = panelDetailValueText(formatStageLabel(stageRef?.name || step.stage_name || step.stage || '-', '-'), '-');
       const campaignId = String(item?.campaign?.id || step.campaign_id || '').trim();
       const campaignName = panelDetailValueText(item?.campaign?.title || item?.campaign?.campaign_name || campaignId || '-', '-');
       const stepProgress = renderSegmentedProgress([status]);
@@ -5965,7 +6027,7 @@ __NAV_CONTROLS__
             ${cardSlotEnabled('step', 'linked_deliverable') ? `<div class='module-row span-2'><span>Linked deliverable:</span><span>${linkedDeliverableTitle || '-'}</span></div>` : ''}
             ${cardSlotEnabled('step', 'note') ? `<div class='module-row span-2'><span>Note:</span>${reasonControl}${actionButton}</div>` : ''}
             ` : ''}
-            ${cardSlotEnabled('step', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>${String(step.stage || step.stage_name || 'stage').replace(/_/g,' ')}</span><span class='tag'>${String(step.step_kind || 'task')}</span></div></div>` : ''}
+            ${cardSlotEnabled('step', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>${formatStageLabel(step.stage || step.stage_name || 'stage', 'Stage')}</span><span class='tag'>${String(step.step_kind || 'task')}</span></div></div>` : ''}
             `}
           </div>
           ${footer}
@@ -6184,7 +6246,7 @@ __NAV_CONTROLS__
               ` : ''}
             `}
             ` : ''}
-            ${cardSlotEnabled('stage', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>stage</span><span class='tag'>${String(s.name || '-').toLowerCase()}</span></div></div>` : ''}
+            ${cardSlotEnabled('stage', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>stage</span><span class='tag'>${formatStageLabel(s.name || '-', '-')}</span></div></div>` : ''}
             `}
           </div>
           ${footer}
@@ -6493,7 +6555,7 @@ __NAV_CONTROLS__
       const deliverableStartId = opts.startId || `${idPrefix}Start_${d.id || 'deliverable'}`;
       const deliverableDueId = opts.dueId || `${idPrefix}Due_${d.id || 'deliverable'}`;
       const deliverableOwnerId = opts.ownerId || `${idPrefix}Owner_${d.id || 'deliverable'}`;
-      const stageLabel = String(d.stage || 'planning').replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase());
+      const stageLabel = formatStageLabel(d.stage || 'planning', 'Planning');
       const actionRow = opts.actionsHtml ? `<div class='actions'>${opts.actionsHtml}</div>` : '';
       const statusControl = opts.statusControlHtml || (canAdvanceDeliverableStatus
         ? deliverableStatusDropdown(d, opts.dropdownContext || 'deliverables')
@@ -7671,24 +7733,24 @@ Cancel = Abort`
     function productLineTemplate(index) {
       return `
         <div class='line-item' data-line='${index}'>
-          <div class='field'>
+          <div class='field inline-field'>
             <label>Product</label>
             <select data-field='product_type' onchange='onProductLineTypeChange(${index})'>
               ${PRODUCT_TYPES.map(v => `<option value="${v}">${v}</option>`).join('')}
             </select>
           </div>
-          <div class='field'>
+          <div class='field inline-field'>
             <label>Tier</label>
             <select data-field='tier'>
               ${PRODUCT_TIERS.map(v => `<option value="${v}">${v}</option>`).join('')}
             </select>
           </div>
-          <div class='field line-demand' data-line-demand='${index}'>
-            <label>Demand Modules</label>
+          <div class='field inline-field line-demand' data-line-demand='${index}'>
+            <label>Modules</label>
             <select data-field='demand_module_mode' onchange='onDemandModuleModeChange(${index})'>
-              <option value='create_only'>Create only</option>
+              <option value='create_only' selected>Create only</option>
               <option value='create_reach'>Create + Reach</option>
-              <option value='create_reach_capture' selected>Create + Reach + Capture</option>
+              <option value='create_reach_capture'>Create + Reach + Capture</option>
             </select>
           </div>
           <div class='field line-demand line-demand-reach' data-line-demand='${index}'>
@@ -7704,7 +7766,7 @@ Cancel = Abort`
             </select>
           </div>
           <div class='field line-response hidden' data-line-response='${index}'>
-            <label>Response Lead Volume</label>
+            <label>Lead volume</label>
             <input type='number' min='1' step='1' data-field='lead_volume' placeholder='e.g. 500' />
           </div>
           <button type='button' onclick='removeProductLine(${index})'>Remove</button>
@@ -7747,7 +7809,7 @@ Cancel = Abort`
     function onDemandModuleModeChange(index) {
       const row = document.querySelector(`#productLines .line-item[data-line="${index}"]`);
       if (!row) return;
-      const mode = row.querySelector('[data-field="demand_module_mode"]')?.value || 'create_reach_capture';
+      const mode = row.querySelector('[data-field="demand_module_mode"]')?.value || 'create_only';
       const reachWrap = row.querySelector('.line-demand-reach');
       const captureWrap = row.querySelector('.line-demand-capture');
       const reachSelect = row.querySelector('[data-field="reach_level"]');
@@ -7786,6 +7848,21 @@ Cancel = Abort`
       return `${yy}-${mm}-${dd}`;
     }
 
+    function addIsoDays(isoDate, days) {
+      if (!isoDate) return null;
+      const m = String(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const year = Number(m[1]);
+      const month = Number(m[2]);
+      const day = Number(m[3]);
+      const dt = new Date(Date.UTC(year, month - 1, day));
+      dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+      const yy = String(dt.getUTCFullYear()).padStart(4, '0');
+      const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getUTCDate()).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
+    }
+
     function dealDurationMonthsFromLines() {
       const rows = [...document.querySelectorAll('#productLines .line-item')];
       const productTypes = rows
@@ -7803,7 +7880,9 @@ Cancel = Abort`
       const startDate = startEl.value;
       if (!startDate) return;
       const months = dealDurationMonthsFromLines();
-      const computed = addCalendarMonths(startDate, months);
+      const boundary = addCalendarMonths(startDate, months);
+      if (!boundary) return;
+      const computed = months === 3 ? addIsoDays(boundary, -1) : boundary;
       if (computed) endEl.value = computed;
     }
 
@@ -7868,6 +7947,17 @@ Cancel = Abort`
         .replace(/_/g, ' ')
         .trim()
         .replace(/\\b\\w/g, ch => ch.toUpperCase());
+    }
+
+    function formatStageLabel(raw, fallback = '-') {
+      const value = String(raw ?? '').trim();
+      if (!value) return fallback;
+      const normalized = value
+        .replace(/[\s-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .toLowerCase();
+      return normalized ? toTitle(normalized) : fallback;
     }
 
     function scopeModuleCard(scope, opts = {}) {
@@ -8059,6 +8149,14 @@ Cancel = Abort`
       return (scopes || []).map(scope => {
         const campaigns = Array.isArray(scope?.campaigns) ? scope.campaigns : [];
         const campaignStatuses = campaigns.map(c => normalizeStatusValue(c?.status || 'not_started'));
+        const scopeAm = scope?.am_user || {};
+        const ownerUserId = String(scopeAm?.user_id || scope?.am_user_id || '').trim();
+        const ownerName = String(scopeAm?.name || scope?.am_name || '').trim();
+        const ownerInitials = String(
+          scopeAm?.initials
+          || scope?.am_initials
+          || (ownerName ? initialsFromName(ownerName) : '--')
+        ).trim() || '--';
         const campaignRows = buildCampaignRows(campaigns, workspaceMap).map(row => ({
           ...row,
           scope_id: scope.id || row.scope_id || '',
@@ -8071,9 +8169,10 @@ Cancel = Abort`
           title: scope.client_name || scope.brand_name || scope.id || 'Scope',
           status: normalizeStatusValue(scope.status || 'not_started'),
           health: String(scope.health || 'not_started').toLowerCase(),
-          owner_initials: scope.am_initials || '--',
-          owner_name: scope.am_name || '',
-          participants: scope.am_user_id ? [{ initials: scope.am_initials || '--', name: scope.am_name || '' }] : [],
+          owner_initials: ownerInitials,
+          owner_name: ownerName,
+          owner_user_id: ownerUserId,
+          participants: ownerUserId ? [{ id: ownerUserId, initials: ownerInitials, name: ownerName }] : [],
           progress_statuses: campaignStatuses,
           context_id: '',
           children: campaignRows,
@@ -8114,7 +8213,7 @@ Cancel = Abort`
             row_key: rowKeyFor('stage', stage.id),
             module_type: 'stage',
             id: stage.id,
-            title: stage.name || 'Stage',
+            title: formatStageLabel(stage.name || 'Stage', 'Stage'),
             status: normalizeStatusValue(stage.status || deriveStageStatus(stageSteps)),
             health: String(stage.health || deriveStageHealth(stageSteps) || 'not_started').toLowerCase(),
             timeframe_start: stage?.current_start || stage?.baseline_start || stageWindow.start || null,
@@ -9465,7 +9564,7 @@ Cancel = Abort`
           const steps = stepsByParent[parentKey] || [];
           if (!steps.length) return '';
           const first = steps[0] || {};
-          const parentTitle = `${String(first.stage_name || 'planning').replace(/_/g, ' ').replace(/\b\w/g, m => m.toUpperCase())} · Steps`;
+          const parentTitle = `${formatStageLabel(first.stage_name || 'planning', 'Planning')} · Steps`;
           const counts = { planned: 0, active: 0, done: 0 };
           for (const s of steps) {
             const state = normalizeStatusValue(s.status || s.step_state || '');
@@ -9502,7 +9601,7 @@ Cancel = Abort`
                     `Task ID: ${s.id || "-"}`,
                     `Campaign: ${s.campaign_id || "-"}`,
                     `Parent: ${s.parent_type || "-"}`,
-                    `Stage: ${s.stage_name || "-"}`,
+                    `Stage: ${formatStageLabel(s.stage_name || s.stage || "-", "-")}`,
                     `Linked deliverable: ${s.linked_deliverable_title || s.deliverable_title || "-"}`,
                     `Owner role: ${s.owner_role || "-"}`,
                     `Assigned user: ${userName(s.next_owner_user_id || "")}`,
