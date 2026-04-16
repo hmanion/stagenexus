@@ -784,73 +784,8 @@ def _actor_has_control_permission(
     return False
 
 
-def _can_actor_approve_scope(db: Session, actor: Any) -> bool:
-    if actor.app_role in {AppAccessRole.ADMIN, AppAccessRole.SUPERADMIN}:
-        return True
-    if _actor_has_control_permission(
-        db,
-        actor,
-        "ops_approve_latest_deal",
-        fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.HEAD_SALES, RoleName.ADMIN},
-    ):
-        return True
-    return actor.seniority == SeniorityLevel.LEADERSHIP and actor.primary_team in {TeamName.SALES, TeamName.CLIENT_SERVICES}
 
 
-def _can_actor_generate_campaigns(db: Session, actor: Any) -> bool:
-    if actor.app_role in {AppAccessRole.ADMIN, AppAccessRole.SUPERADMIN}:
-        return True
-    if _actor_has_control_permission(
-        db,
-        actor,
-        "generate_latest_campaigns",
-        fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
-    ):
-        return True
-    return actor.seniority == SeniorityLevel.LEADERSHIP and actor.primary_team == TeamName.CLIENT_SERVICES
-
-
-# === Shared route helpers ===
-
-def _get_actor(db: Session, actor_user_id: str) -> Any:
-    return AuthzService(db).actor(actor_user_id)
-
-
-def _get_deal_or_404(db: Session, deal_id: str, *, detail: str = "scope not found") -> Deal:
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail=detail)
-    return deal
-
-
-def _require_deal_owner_or_roles(
-    db: Session,
-    actor_user_id: str,
-    deal: Deal,
-    allowed_roles: set[RoleName],
-) -> Any:
-    authz = AuthzService(db)
-    actor = _get_actor(db, actor_user_id)
-    authz.require_deal_owner_or_roles(actor, deal, allowed_roles)
-    return actor
-
-
-def _build_deal_out(db: Session, deal: Deal) -> DealOut:
-    client = db.get(Client, deal.client_id)
-    return DealOut(
-        id=deal.display_id,
-        status=deal.status.value,
-        client_name=client.name if client else None,
-        brand_publication=deal.brand_publication.value,
-    )
-
-
-def _build_scope_timeframe_response(deal: Deal) -> dict[str, str | None]:
-    return {
-        "scope_id": deal.display_id,
-        "sow_start_date": deal.sow_start_date.isoformat() if deal.sow_start_date else None,
-        "sow_end_date": deal.sow_end_date.isoformat() if deal.sow_end_date else None,
-    }
 
 @router.get("/campaigns/health")
 def list_campaigns_health(

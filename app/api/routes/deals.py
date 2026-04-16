@@ -34,16 +34,10 @@ from app.services.deal_service import DealService
 from app.services.id_service import PublicIdService
 from app.services.calendar_service import build_default_working_calendar
 
-from app.api.core_routes import (
-    _build_deal_out,
-    _build_scope_timeframe_response,
-    _can_actor_approve_scope,
-    _can_actor_generate_campaigns,
-    _delete_scope_graph,
-    _get_actor,
-    _get_deal_or_404,
-    _require_deal_owner_or_roles,
-)
+from app.api.core_routes import _delete_scope_graph
+from app.api.deps import get_actor, get_deal_or_404, require_deal_owner_or_roles
+from app.api.permissions import can_actor_approve_scope, can_actor_generate_campaigns
+from app.api.response_builders import build_deal_out, build_scope_timeframe_response
 
 router = APIRouter(prefix="/api", tags=["campaign-ops"])
 
@@ -51,7 +45,7 @@ router = APIRouter(prefix="/api", tags=["campaign-ops"])
 @router.post("/deals", response_model=DealOut)
 @router.post("/scopes", response_model=DealOut)
 def create_deal(payload: DealCreateIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    actor = _get_actor(db, actor_user_id)
+    actor = get_actor(db, actor_user_id)
     authz = AuthzService(db)
     authz.require_any(actor, {RoleName.AM, RoleName.ADMIN})
     if payload.am_user_id != actor_user_id and RoleName.ADMIN not in actor.roles:
@@ -62,25 +56,25 @@ def create_deal(payload: DealCreateIn, actor_user_id: str, db: Session = Depends
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
-    return _build_deal_out(db, deal)
+    return build_deal_out(db, deal)
 
 
 @router.post("/deals/{deal_id}/submit", response_model=DealOut)
 @router.post("/scopes/{deal_id}/submit", response_model=DealOut)
 def submit_deal(deal_id: str, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    deal = _get_deal_or_404(db, deal_id)
-    _require_deal_owner_or_roles(db, actor_user_id, deal, {RoleName.ADMIN, RoleName.HEAD_OPS})
+    deal = get_deal_or_404(db, deal_id)
+    require_deal_owner_or_roles(db, actor_user_id, deal, {RoleName.ADMIN, RoleName.HEAD_OPS})
 
     DealService(db).submit_deal(deal)
     db.commit()
-    return _build_deal_out(db, deal)
+    return build_deal_out(db, deal)
 
 
 @router.patch("/deals/{deal_id}/am")
 @router.patch("/scopes/{deal_id}/am")
 def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depends(get_db)):
-    deal = _get_deal_or_404(db, deal_id)
-    _require_deal_owner_or_roles(
+    deal = get_deal_or_404(db, deal_id)
+    require_deal_owner_or_roles(
         db,
         payload.actor_user_id,
         deal,
@@ -119,8 +113,8 @@ def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depend
 @router.patch("/deals/{deal_id}/content")
 @router.patch("/scopes/{deal_id}/content")
 def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Session = Depends(get_db)):
-    deal = _get_deal_or_404(db, deal_id)
-    _require_deal_owner_or_roles(
+    deal = get_deal_or_404(db, deal_id)
+    require_deal_owner_or_roles(
         db,
         payload.actor_user_id,
         deal,
@@ -238,8 +232,8 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
 @router.patch("/deals/{deal_id}/timeframe")
 @router.patch("/scopes/{deal_id}/timeframe")
 def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Session = Depends(get_db)):
-    deal = _get_deal_or_404(db, deal_id)
-    actor = _require_deal_owner_or_roles(
+    deal = get_deal_or_404(db, deal_id)
+    actor = require_deal_owner_or_roles(
         db,
         payload.actor_user_id,
         deal,
@@ -277,14 +271,14 @@ def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Se
         )
     )
     db.commit()
-    return _build_scope_timeframe_response(deal)
+    return build_scope_timeframe_response(deal)
 
 
 @router.delete("/deals/{deal_id}")
 @router.delete("/scopes/{deal_id}")
 def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get_db)):
-    deal = _get_deal_or_404(db, deal_id)
-    actor = _require_deal_owner_or_roles(
+    deal = get_deal_or_404(db, deal_id)
+    actor = require_deal_owner_or_roles(
         db,
         payload.actor_user_id,
         deal,
@@ -315,30 +309,30 @@ def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get
 @router.post("/deals/{deal_id}/ops-approve", response_model=DealOut)
 @router.post("/scopes/{deal_id}/ops-approve", response_model=DealOut)
 def ops_approve_deal(deal_id: str, payload: OpsApproveIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    deal = _get_deal_or_404(db, deal_id)
+    deal = get_deal_or_404(db, deal_id)
 
     authz = AuthzService(db)
-    actor = _get_actor(db, actor_user_id)
-    if not _can_actor_approve_scope(db, actor):
+    actor = get_actor(db, actor_user_id)
+    if not can_actor_approve_scope(db, actor):
         raise HTTPException(status_code=403, detail="insufficient permissions to approve scope")
 
     if not payload.head_ops_user_id:
         payload.head_ops_user_id = actor_user_id
     deal = DealService(db).ops_approve(deal, payload)
     db.commit()
-    return _build_deal_out(db, deal)
+    return build_deal_out(db, deal)
 
 
 @router.post("/deals/{deal_id}/generate-campaigns", response_model=list[CampaignOut])
 @router.post("/scopes/{deal_id}/generate-campaigns", response_model=list[CampaignOut])
 def generate_campaigns(deal_id: str, actor_user_id: str, db: Session = Depends(get_db)) -> list[CampaignOut]:
-    deal = _get_deal_or_404(db, deal_id)
+    deal = get_deal_or_404(db, deal_id)
     if deal.status != DealStatus.READINESS_PASSED:
         raise HTTPException(status_code=400, detail="scope must pass operational readiness gate")
 
     authz = AuthzService(db)
-    actor = _get_actor(db, actor_user_id)
-    if not _can_actor_generate_campaigns(db, actor):
+    actor = get_actor(db, actor_user_id)
+    if not can_actor_generate_campaigns(db, actor):
         raise HTTPException(status_code=403, detail="insufficient permissions to generate campaigns")
 
     try:
