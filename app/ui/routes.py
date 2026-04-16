@@ -5710,7 +5710,7 @@ __NAV_CONTROLS__
         const ownerUser = panelTeamUserByRole(
           ownerRole,
           byRole,
-          String(step?.next_owner_user_id || '').trim() || stepRoleUserFromEfforts(step, ownerRole),
+          String(step?.next_owner_user_id || '').trim(),
         );
         const ownerUsers = usersForRoleEditor(ownerRole)
           .map(u => ({ id: u.id, name: u.name, initials: (u.initials || initialsFromName(u.name || '')) }));
