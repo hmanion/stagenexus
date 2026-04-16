@@ -49,6 +49,21 @@ class DealOut(BaseModel):
     brand_publication: str | None = None
 
 
+class ScopeAmUpdateIn(BaseModel):
+    actor_user_id: str
+    am_user_id: str
+
+
+class ScopeContentUpdateIn(BaseModel):
+    actor_user_id: str
+    client_name: str | None = None
+    client_contact_name: str | None = None
+    client_contact_email: str | None = None
+    icp: str | None = None
+    campaign_objective: str | None = None
+    messaging_positioning: str | None = None
+
+
 class OpsApproveIn(BaseModel):
     head_ops_user_id: str
     cm_user_id: str

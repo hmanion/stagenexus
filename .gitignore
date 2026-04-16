@@ -1,5 +1,26 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+.venv/
+venv/
+
+# Env files
 .env
-campaign_ops.db
+.env.*
+!.env.example
+
+# Local databases
+*.sqlite
+*.db
+
+# OS/editor noise
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Build/cache
+.pytest_cache/
+.mypy_cache/

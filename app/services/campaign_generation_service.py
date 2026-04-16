@@ -1113,6 +1113,17 @@ class CampaignGenerationService:
                             continue
                         dep_steps.append(dep_step)
                 if dep_steps:
+                    # Avoid duplicate dependency edges for the same predecessor->successor pair.
+                    deduped: list[WorkflowStep] = []
+                    seen_dep_ids: set[str] = set()
+                    for dep_step in dep_steps:
+                        dep_id = str(dep_step.id or "").strip()
+                        if not dep_id or dep_id in seen_dep_ids:
+                            continue
+                        seen_dep_ids.add(dep_id)
+                        deduped.append(dep_step)
+                    dep_steps = deduped
+                if dep_steps:
                     latest_due = max((s.current_due for s in dep_steps if s.current_due), default=planned_start)
                     planned_start = latest_due or planned_start
 

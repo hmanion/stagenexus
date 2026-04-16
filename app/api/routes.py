@@ -5,6 +5,7 @@ from typing import Any, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -62,7 +63,15 @@ from app.schemas.admin import (
     OpsDefaultsUpdateIn,
     RolePermissionsUpdateIn,
 )
-from app.schemas.deals import DealCreateIn, DealOut, OpsApproveIn, SowChangeApproveIn, SowChangeCreateIn
+from app.schemas.deals import (
+    DealCreateIn,
+    DealOut,
+    OpsApproveIn,
+    ScopeAmUpdateIn,
+    ScopeContentUpdateIn,
+    SowChangeApproveIn,
+    SowChangeCreateIn,
+)
 from app.schemas.deliverables import (
     CapacityOverrideDecisionIn,
     CapacityOverrideRequestIn,
@@ -767,6 +776,165 @@ def submit_deal(deal_id: str, actor_user_id: str, db: Session = Depends(get_db))
     )
 
 
+@router.patch("/deals/{deal_id}/am")
+@router.patch("/scopes/{deal_id}/am")
+def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depends(get_db)):
+    deal = _resolve_by_identifier(db, Deal, deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="scope not found")
+
+    authz = AuthzService(db)
+    actor = authz.actor(payload.actor_user_id)
+    authz.require_deal_owner_or_roles(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES})
+
+    next_am = db.get(User, payload.am_user_id)
+    if not next_am:
+        raise HTTPException(status_code=400, detail="am user not found")
+    if next_am.primary_team != TeamName.SALES:
+        raise HTTPException(status_code=400, detail="am user must be in sales team")
+
+    old_am_user_id = deal.am_user_id
+    if old_am_user_id == payload.am_user_id:
+        return {"scope_id": deal.display_id, "am_user_id": deal.am_user_id}
+
+    deal.am_user_id = payload.am_user_id
+    db.add(
+        ActivityLog(
+            display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
+            actor_user_id=payload.actor_user_id,
+            entity_type="scope",
+            entity_id=deal.id,
+            action="scope_am_updated",
+            meta_json={
+                "scope_id": deal.display_id,
+                "old_am_user_id": old_am_user_id,
+                "new_am_user_id": payload.am_user_id,
+            },
+        )
+    )
+    db.commit()
+    return {"scope_id": deal.display_id, "am_user_id": deal.am_user_id}
+
+
+@router.patch("/deals/{deal_id}/content")
+@router.patch("/scopes/{deal_id}/content")
+def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Session = Depends(get_db)):
+    deal = _resolve_by_identifier(db, Deal, deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail="scope not found")
+
+    authz = AuthzService(db)
+    actor = authz.actor(payload.actor_user_id)
+    authz.require_deal_owner_or_roles(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES})
+
+    client = db.get(Client, deal.client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="client not found for scope")
+    primary_contact = db.scalars(
+        select(ClientContact)
+        .where(ClientContact.client_id == deal.client_id)
+        .order_by(ClientContact.created_at.asc())
+    ).first()
+
+    old_client_name = client.name
+    old_client_contact_name = primary_contact.name if primary_contact else None
+    old_client_contact_email = primary_contact.email if primary_contact else None
+    old_icp = deal.icp
+    old_campaign_objective = deal.campaign_objective
+    old_messaging_positioning = deal.messaging_positioning
+
+    if payload.client_name is not None:
+        next_client_name = str(payload.client_name).strip()
+        if not next_client_name:
+            raise HTTPException(status_code=400, detail="client name is required")
+        client.name = next_client_name
+
+    contact_name_input = payload.client_contact_name
+    contact_email_input = payload.client_contact_email
+    if contact_name_input is not None or contact_email_input is not None:
+        next_contact_name = (
+            str(contact_name_input).strip()
+            if contact_name_input is not None
+            else (primary_contact.name if primary_contact else "")
+        )
+        next_contact_email = (
+            str(contact_email_input).strip()
+            if contact_email_input is not None
+            else (primary_contact.email if primary_contact else "")
+        )
+        if not next_contact_name or not next_contact_email:
+            raise HTTPException(status_code=400, detail="contact name and email are required")
+        if "@" not in next_contact_email:
+            raise HTTPException(status_code=400, detail="contact email must be valid")
+        if primary_contact:
+            primary_contact.name = next_contact_name
+            primary_contact.email = next_contact_email
+        else:
+            primary_contact = ClientContact(
+                client_id=deal.client_id,
+                name=next_contact_name,
+                email=next_contact_email,
+            )
+            db.add(primary_contact)
+
+    deal.icp = payload.icp
+    deal.campaign_objective = payload.campaign_objective
+    deal.messaging_positioning = payload.messaging_positioning
+
+    if (
+        old_client_name == client.name
+        and old_client_contact_name == (primary_contact.name if primary_contact else None)
+        and old_client_contact_email == (primary_contact.email if primary_contact else None)
+        and old_icp == deal.icp
+        and old_campaign_objective == deal.campaign_objective
+        and old_messaging_positioning == deal.messaging_positioning
+    ):
+        return {
+            "scope_id": deal.display_id,
+            "client_name": client.name,
+            "client_contact_name": primary_contact.name if primary_contact else None,
+            "client_contact_email": primary_contact.email if primary_contact else None,
+            "icp": deal.icp,
+            "campaign_objective": deal.campaign_objective,
+            "messaging_positioning": deal.messaging_positioning,
+        }
+
+    db.add(
+        ActivityLog(
+            display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
+            actor_user_id=payload.actor_user_id,
+            entity_type="scope",
+            entity_id=deal.id,
+            action="scope_content_updated",
+            meta_json={
+                "scope_id": deal.display_id,
+                "old_client_name": old_client_name,
+                "new_client_name": client.name,
+                "old_client_contact_name": old_client_contact_name,
+                "new_client_contact_name": primary_contact.name if primary_contact else None,
+                "old_client_contact_email": old_client_contact_email,
+                "new_client_contact_email": primary_contact.email if primary_contact else None,
+                "old_icp": old_icp,
+                "new_icp": deal.icp,
+                "old_campaign_objective": old_campaign_objective,
+                "new_campaign_objective": deal.campaign_objective,
+                "old_messaging_positioning": old_messaging_positioning,
+                "new_messaging_positioning": deal.messaging_positioning,
+            },
+        )
+    )
+    db.commit()
+    return {
+        "scope_id": deal.display_id,
+        "client_name": client.name,
+        "client_contact_name": primary_contact.name if primary_contact else None,
+        "client_contact_email": primary_contact.email if primary_contact else None,
+        "icp": deal.icp,
+        "campaign_objective": deal.campaign_objective,
+        "messaging_positioning": deal.messaging_positioning,
+    }
+
+
 @router.post("/deals/{deal_id}/ops-approve", response_model=DealOut)
 @router.post("/scopes/{deal_id}/ops-approve", response_model=DealOut)
 def ops_approve_deal(deal_id: str, payload: OpsApproveIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
@@ -809,7 +977,11 @@ def generate_campaigns(deal_id: str, actor_user_id: str, db: Session = Depends(g
     try:
         generated = CampaignGenerationService(db).generate_for_deal(deal)
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="campaign generation failed due to data integrity constraints") from exc
     deal.status = DealStatus.CAMPAIGNS_GENERATED
     db.commit()
 

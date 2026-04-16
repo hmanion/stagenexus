@@ -484,6 +484,11 @@ class StageIntegrityService:
                 select(WorkflowStepDependency).where(WorkflowStepDependency.successor_step_id == successor.id)
             ).all()
         }
+        # Session autoflush is disabled; include pending dependency rows queued in this transaction.
+        for pending in self.db.new:
+            if not isinstance(pending, WorkflowStepDependency):
+                continue
+            existing.add((pending.predecessor_step_id, pending.successor_step_id))
         for predecessor in predecessors:
             pair = (predecessor.id, successor.id)
             if pair in existing:
@@ -496,6 +501,8 @@ class StageIntegrityService:
                     dependency_type="finish_to_start",
                 )
             )
+            # Guard against duplicate pairs queued within the same transaction flush.
+            existing.add(pair)
 
     def _row_applies_to_campaign(self, row: dict, campaign: Campaign, line: DealProductLine) -> bool:
         applicability = row.get("applicability_by_product") or {}

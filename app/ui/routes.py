@@ -436,12 +436,12 @@ def index() -> str:
     }
     .panel-details-title,
     .object-panel-children-title {
-      font-size: 1rem;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.08em;
       color: var(--ink-3);
       text-transform: uppercase;
-      margin-top: 0.25rem;
+      margin: 0.25rem 0;
     }
     .panel-details-grid,
     .object-panel-children-list {
@@ -1732,7 +1732,7 @@ def index() -> str:
     .module-fields {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 8px;
+      gap: 0px;
     }
     .module-row.span-2 {
       grid-column: 1 / -1;
@@ -2881,6 +2881,24 @@ __NAV_CONTROLS__
           <option value='response'>Response</option>
           <option value='display_only'>Display</option>
         </select>
+        <label class='sub' for='qScopeHealth'>Scope health</label>
+        <select id='qScopeHealth' aria-label='Filter scope health' onchange='refreshAll()'>
+          <option value='all'>All scope health</option>
+          <option value='on_track'>On Track</option>
+          <option value='at_risk'>At Risk</option>
+          <option value='off_track'>Off Track</option>
+          <option value='not_started'>Not due</option>
+        </select>
+        <label class='sub' for='qCampaignHealth'>Campaign health</label>
+        <select id='qCampaignHealth' aria-label='Filter campaign health' onchange='refreshAll()'>
+          <option value='all'>All campaign health</option>
+          <option value='on_track'>On Track</option>
+          <option value='at_risk'>At Risk</option>
+          <option value='off_track'>Off Track</option>
+          <option value='not_started'>Not due</option>
+        </select>
+        <label class='sub' for='qUsers'>Users</label>
+        <select id='qUsers' aria-label='Filter by users' multiple size='5' onchange='refreshAll()'></select>
       </div>
     </section>
 
@@ -2904,64 +2922,67 @@ __NAV_CONTROLS__
         <h3>New Scope Intake</h3>
         <span class='muted'>Capture and submit commercial intake</span>
       </div>
-      <article>
-        <p class='sub'>Capture commercial details and submit to Ops for triage.</p>
-        <form id='dealForm' onsubmit='submitNewDeal(event)'>
-          <div class='form-grid'>
-            <div class='field'>
-              <label for='dealClientName'>Client</label>
-              <input id='dealClientName' required placeholder='Client name' />
-            </div>
-            <div class='field'>
-              <label for='dealPublication'>Brand / Publication</label>
-              <select id='dealPublication' required></select>
-            </div>
-            <div class='field full'>
-              <label>Product Lines</label>
-              <div class='line-list' id='productLines'></div>
-              <div class='actions'>
-                <button type='button' onclick='addProductLine()'>Add Product Line</button>
+      <details class='ops-accordion surface-2'>
+        <summary>Scope Form</summary>
+        <article>
+          <p class='sub'>Capture commercial details and submit to Ops for triage.</p>
+          <form id='dealForm' onsubmit='submitNewDeal(event)'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label for='dealClientName'>Client</label>
+                <input id='dealClientName' required placeholder='Client name' />
+              </div>
+              <div class='field'>
+                <label for='dealPublication'>Brand / Publication</label>
+                <select id='dealPublication' required></select>
+              </div>
+              <div class='field full'>
+                <label>Product Lines</label>
+                <div class='line-list' id='productLines'></div>
+                <div class='actions'>
+                  <button type='button' onclick='addProductLine()'>Add Product Line</button>
+                </div>
+              </div>
+              <div class='field'>
+                <label for='dealSowStart'>SOW Start</label>
+                <input id='dealSowStart' type='date' required onchange='recomputeDealEndDate()' />
+              </div>
+              <div class='field'>
+                <label for='dealSowEnd'>SOW End</label>
+                <input id='dealSowEnd' type='date' required />
+              </div>
+              <div class='field full'>
+                <label for='dealICP'>ICP</label>
+                <textarea id='dealICP' required placeholder='Ideal customer profile'></textarea>
+              </div>
+              <div class='field full'>
+                <label for='dealObjective'>Campaign Objective</label>
+                <textarea id='dealObjective' required placeholder='Primary objective'></textarea>
+              </div>
+              <div class='field full'>
+                <label for='dealMessaging'>Messaging / Positioning</label>
+                <textarea id='dealMessaging' required placeholder='Core narrative and positioning'></textarea>
+              </div>
+              <div class='field'>
+                <label for='contactName'>Client Contact Name</label>
+                <input id='contactName' placeholder='Primary contact' />
+              </div>
+              <div class='field'>
+                <label for='contactEmail'>Client Contact Email</label>
+                <input id='contactEmail' type='email' placeholder='contact@example.com' />
+              </div>
+              <div class='field full'>
+                <label for='dealAttachment'>SOW Attachment (metadata for now)</label>
+                <input id='dealAttachment' placeholder='SOW.pdf' />
               </div>
             </div>
-            <div class='field'>
-              <label for='dealSowStart'>SOW Start</label>
-              <input id='dealSowStart' type='date' required onchange='recomputeDealEndDate()' />
+            <div class='actions'>
+              <button class='primary' data-control='create_deal' type='submit'>Create Scope</button>
+              <button type='button' data-control='create_submit_deal' onclick='submitAndRouteLatestDeal()'>Create Scope + Submit to Ops</button>
             </div>
-            <div class='field'>
-              <label for='dealSowEnd'>SOW End</label>
-              <input id='dealSowEnd' type='date' required />
-            </div>
-            <div class='field full'>
-              <label for='dealICP'>ICP</label>
-              <textarea id='dealICP' required placeholder='Ideal customer profile'></textarea>
-            </div>
-            <div class='field full'>
-              <label for='dealObjective'>Campaign Objective</label>
-              <textarea id='dealObjective' required placeholder='Primary objective'></textarea>
-            </div>
-            <div class='field full'>
-              <label for='dealMessaging'>Messaging / Positioning</label>
-              <textarea id='dealMessaging' required placeholder='Core narrative and positioning'></textarea>
-            </div>
-            <div class='field'>
-              <label for='contactName'>Client Contact Name</label>
-              <input id='contactName' placeholder='Primary contact' />
-            </div>
-            <div class='field'>
-              <label for='contactEmail'>Client Contact Email</label>
-              <input id='contactEmail' type='email' placeholder='contact@example.com' />
-            </div>
-            <div class='field full'>
-              <label for='dealAttachment'>SOW Attachment (metadata for now)</label>
-              <input id='dealAttachment' placeholder='SOW.pdf' />
-            </div>
-          </div>
-          <div class='actions'>
-            <button class='primary' data-control='create_deal' type='submit'>Create Scope</button>
-            <button type='button' data-control='create_submit_deal' onclick='submitAndRouteLatestDeal()'>Create Scope + Submit to Ops</button>
-          </div>
-        </form>
-      </article>
+          </form>
+        </article>
+      </details>
     </section>
 
     <section class='card' id='sectionDeals'>
@@ -3506,6 +3527,78 @@ __NAV_CONTROLS__
     function getFilterValue(id) {
       const el = document.getElementById(id);
       return (el?.value || '').trim().toLowerCase();
+    }
+
+    function getMultiFilterValues(id) {
+      const el = document.getElementById(id);
+      if (!(el instanceof HTMLSelectElement)) return [];
+      return Array.from(el.selectedOptions || [])
+        .map(option => String(option?.value || '').trim())
+        .filter(Boolean);
+    }
+
+    function selectedUserFilterSet() {
+      return new Set(getMultiFilterValues('qUsers'));
+    }
+
+    function hasSelectedUserMatch(userIds = [], selectedUserIds = new Set()) {
+      if (!(selectedUserIds instanceof Set) || !selectedUserIds.size) return true;
+      return (Array.isArray(userIds) ? userIds : []).some(userId => selectedUserIds.has(String(userId || '').trim()));
+    }
+
+    function campaignUserIds(campaign = {}) {
+      const ids = new Set();
+      const assigned = Array.isArray(campaign?.assigned_users) ? campaign.assigned_users : [];
+      for (const user of assigned) {
+        const userId = String(user?.user_id || user?.id || '').trim();
+        if (userId) ids.add(userId);
+      }
+      const owners = Array.isArray(campaign?.owner_user_ids) ? campaign.owner_user_ids : [];
+      for (const userId of owners) {
+        const value = String(userId || '').trim();
+        if (value) ids.add(value);
+      }
+      return Array.from(ids);
+    }
+
+    function campaignMatchesUserFilter(campaign = {}, selectedUserIds = new Set()) {
+      if (!(selectedUserIds instanceof Set) || !selectedUserIds.size) return true;
+      return hasSelectedUserMatch(campaignUserIds(campaign), selectedUserIds);
+    }
+
+    function scopeMatchesUserFilter(scope = {}, selectedUserIds = new Set()) {
+      if (!(selectedUserIds instanceof Set) || !selectedUserIds.size) return true;
+      const directIds = [
+        scope?.am_user?.user_id,
+        scope?.am_user_id,
+        scope?.assigned_cm_user_id,
+        scope?.assigned_cc_user_id,
+        scope?.assigned_ccs_user_id,
+      ]
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      if (hasSelectedUserMatch(directIds, selectedUserIds)) return true;
+      const campaigns = Array.isArray(scope?.campaigns) ? scope.campaigns : [];
+      return campaigns.some(campaign => campaignMatchesUserFilter(campaign, selectedUserIds));
+    }
+
+    function populateUserQuickFilter() {
+      const select = document.getElementById('qUsers');
+      if (!(select instanceof HTMLSelectElement)) return;
+      const selected = new Set(getMultiFilterValues('qUsers'));
+      const users = [...(Array.isArray(usersDirectory) ? usersDirectory : [])]
+        .filter(user => String(user?.id || '').trim())
+        .sort((a, b) => String(a?.name || a?.full_name || a?.email || a?.id || '').localeCompare(String(b?.name || b?.full_name || b?.email || b?.id || '')));
+      if (!users.length) {
+        select.innerHTML = "<option value='' disabled>No users available</option>";
+        return;
+      }
+      select.innerHTML = users.map(user => {
+        const userId = String(user?.id || '').trim();
+        const label = String(user?.name || user?.full_name || user?.email || userId).trim() || userId;
+        const selectedAttr = selected.has(userId) ? ' selected' : '';
+        return `<option value="${userId.replace(/"/g, '&quot;')}"${selectedAttr}>${escapeHtml(label)}</option>`;
+      }).join('');
     }
 
     function matchesFilter(text, filter) {
@@ -4263,7 +4356,7 @@ __NAV_CONTROLS__
         ${listSlotEnabled(moduleType, 'health') && health ? healthChip(health) : ''}
         ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, true, ownerName || null, { userId: ownerUserId })}</span>` : ''}
       `;
-      const avatarsHtml = listSlotEnabled(moduleType, 'avatars')
+      const avatarsHtml = (moduleType !== 'scope') && listSlotEnabled(moduleType, 'avatars')
         ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null, { userId: p?.id || p?.user_id || '', roleKey: p?.role || '', team: p?.team || '' })).join('')}</span>`
         : '';
       const contextIdHtml = (listSlotEnabled(moduleType, 'context_id') && contextId)
@@ -4590,7 +4683,8 @@ __NAV_CONTROLS__
             campaign: {
               ...(ws.campaign || {}),
               deliverables: [],
-              work_steps: [],
+              work_steps: Array.isArray(ws?.workflow_steps?.items) ? ws.workflow_steps.items : [],
+              stages: Array.isArray(ws?.stages) ? ws.stages : [],
               deliverables_summary: ws?.campaign?.deliverables_summary || { total: 0, not_started: 0, in_progress: 0, done: 0 },
               work_summary: ws?.campaign?.work_summary || { total: 0, not_started: 0, in_progress: 0, done: 0 },
             },
@@ -5656,6 +5750,32 @@ __NAV_CONTROLS__
       return totals;
     }
 
+    function stageRoleKeys(payload = {}) {
+      const steps = Array.isArray(payload?.stage_steps)
+        ? payload.stage_steps
+        : (Array.isArray(payload?.stage?.steps) ? payload.stage.steps : []);
+      const hoursByRole = stageHoursByRole(payload);
+      const knownOrder = ['cc', 'ccs', 'cm', 'am', 'head_ops', 'head_sales', 'dn', 'mm', 'admin', 'client', 'leadership_viewer'];
+      const knownOrderIndex = Object.fromEntries(knownOrder.map((role, idx) => [role, idx]));
+      const inferred = new Set();
+
+      for (const step of steps) {
+        const ownerRole = String(step?.owner_role || '').toLowerCase().trim();
+        if (ownerRole) inferred.add(ownerRole);
+      }
+      for (const role of Object.keys(hoursByRole)) {
+        const key = String(role || '').toLowerCase().trim();
+        if (key) inferred.add(key);
+      }
+
+      return Array.from(inferred).sort((a, b) => {
+        const ai = Object.prototype.hasOwnProperty.call(knownOrderIndex, a) ? knownOrderIndex[a] : Number.MAX_SAFE_INTEGER;
+        const bi = Object.prototype.hasOwnProperty.call(knownOrderIndex, b) ? knownOrderIndex[b] : Number.MAX_SAFE_INTEGER;
+        if (ai !== bi) return ai - bi;
+        return a.localeCompare(b);
+      });
+    }
+
     function stepHoursByRole(step = {}) {
       const totals = {};
       const allocations = Array.isArray(step?.effort_allocations) ? step.effort_allocations : [];
@@ -5705,11 +5825,35 @@ __NAV_CONTROLS__
         const am = payload?.scope?.am_user || {};
         const amName = panelDetailValueText(am?.name || payload?.scope?.am_name || '', '-');
         const amInitials = String(am?.initials || payload?.scope?.am_initials || initialsFromName(amName || '') || '--').trim() || '--';
-        const assigned = !!String(am?.user_id || '').trim() || amName !== '-';
+        const amUserId = String(am?.user_id || payload?.scope?.am_user_id || '').trim();
+        const assigned = !!amUserId || amName !== '-';
+        const canEditScopeAm = editMode
+          && (
+            canUseControl('create_deal', currentRole)
+            || canUseControl('ops_approve_latest_deal', currentRole)
+            || canUseControl('manage_campaign_assignments', currentRole)
+          );
+        const hiddenId = `panelTeamAssign_scope_${objectId || 'scope'}_am`;
+        const valueHtml = canEditScopeAm
+          ? `
+            <input type='hidden' id='${hiddenId}' data-scope-assign-hidden='1' data-role-key='am' value='${amUserId}' />
+            ${ownerPillDropdown({
+              id: `panelTeamAssignDrop_scope_${objectId || 'scope'}_am`,
+              currentUserId: amUserId,
+              users: usersForAssignmentSlot('am').map(u => ({ id: u.id, name: u.name, initials: (u.initials || initialsFromName(u.name || '')) })),
+              objectType: 'scope_assignment',
+              objectId: objectId || 'scope',
+              context: 'panel',
+              hiddenInputId: hiddenId,
+              roleKey: 'am',
+              ariaLabel: 'Scope AM assignment',
+            })}
+          `
+          : panelTeamUserHtml({ assigned, name: amName, initials: amInitials, userId: amUserId, roleKey: 'am', isOwner: true });
         return [
           {
             label: 'AM',
-            valueHtml: panelTeamUserHtml({ assigned, name: amName, initials: amInitials, userId: am?.user_id || '', roleKey: 'am', isOwner: true }),
+            valueHtml,
           },
         ];
       }
@@ -5737,10 +5881,10 @@ __NAV_CONTROLS__
           });
       }
       if (type === 'stage') {
-        const roleOrder = ['cc', 'ccs', 'cm', 'am'];
+        const roleOrder = stageRoleKeys(payload);
         const hours = stageHoursByRole(payload);
         return roleOrder
-          .filter(role => canEditRoleAssignments || role !== 'ccs' || !!byRole.ccs?.user_id)
+          .filter(role => String(role || '').trim())
           .map(role => {
             const user = panelTeamUserByRole(role, byRole);
             const valueHtml = canEditRoleAssignments
@@ -5826,6 +5970,91 @@ __NAV_CONTROLS__
 
     function objectPanelTeamHtml(payload = {}) {
       return objectPanelTeamSectionHtml(objectPanelTeamRows(payload));
+    }
+
+    function objectPanelScopeContentModuleHtml(options = {}) {
+      const title = String(options?.title || '').trim();
+      const field = String(options?.field || '').trim();
+      const objectId = String(options?.objectId || '').trim();
+      const valueRaw = options?.value ?? '';
+      const value = String(valueRaw);
+      const editable = !!options?.editable;
+      if (!title || !field || !objectId) return '';
+      const inputId = `panelScopeContent_${field}_${objectId}`;
+      return `
+        <div class='module-fields module-body object-panel-scope-content-module'>
+          <div class='panel-details-title'>${escapeHtml(title)}</div>
+          ${
+            editable
+              ? `<textarea id='${inputId}' data-scope-content-field='${field}' rows='5'>${escapeHtml(value)}</textarea>`
+              : `<div class='sub'>${value.trim() ? escapeHtmlMultiline(value) : '-'}</div>`
+          }
+        </div>
+      `;
+    }
+
+    function objectPanelScopeContentHtml(payload = {}) {
+      const type = String(payload?.module_type || '').toLowerCase().trim();
+      if (type !== 'scope') return '';
+      const scope = payload?.scope || {};
+      const objectId = String(scope?.id || scope?.display_id || '').trim();
+      if (!objectId) return '';
+      const editMode = isModuleEditing('scope', objectId);
+      const editable = editMode
+        && (
+          canUseControl('create_deal', currentRole)
+          || canUseControl('ops_approve_latest_deal', currentRole)
+          || canUseControl('manage_campaign_assignments', currentRole)
+        );
+      return [
+        objectPanelScopeContentModuleHtml({
+          title: 'ICP',
+          field: 'icp',
+          objectId,
+          value: scope?.icp || '',
+          editable,
+        }),
+        objectPanelScopeContentModuleHtml({
+          title: 'Campaign Objective',
+          field: 'campaign_objective',
+          objectId,
+          value: scope?.campaign_objective || '',
+          editable,
+        }),
+        objectPanelScopeContentModuleHtml({
+          title: 'Messaging',
+          field: 'messaging_positioning',
+          objectId,
+          value: scope?.messaging_positioning || '',
+          editable,
+        }),
+      ].join('');
+    }
+
+    function objectPanelProgressHtml(payload = {}) {
+      const type = String(payload?.module_type || '').toLowerCase().trim();
+      let progress = null;
+      if (type === 'scope') {
+        progress = deriveScopeCampaignProgress(payload?.scope || {});
+      } else if (type === 'campaign') {
+        progress = deriveCampaignStageProgress(payload?.campaign || {});
+      } else if (type === 'stage') {
+        const stage = payload?.stage || {};
+        const stageSteps = Array.isArray(payload?.stage_steps)
+          ? payload.stage_steps
+          : (Array.isArray(stage?.steps) ? stage.steps : []);
+        progress = renderSegmentedProgress(stageSteps.map(s => normalizeStatusValue(s?.status || s?.step_state || 'not_started')));
+      }
+      if (!progress) return '';
+      return `
+        <div class='module-fields module-body object-panel-progress-module'>
+          <div class='panel-details-title'>Progress</div>
+          <div class='card-progress span-2'>
+            <div class='progress-meta'><span class='progress-label'>Overall progress</span><span class='progress-pct'>${panelPercentText(progress.pct)}</span></div>
+            ${progress.barHtml}
+          </div>
+        </div>
+      `;
     }
 
     function stepModuleCard(item, opts = {}) {
@@ -6184,7 +6413,6 @@ __NAV_CONTROLS__
         ? panelDetailsSection([
             { label: 'Timeframe', valueHtml: `<span>${escapeHtml(panelDetailValueText(timeframe, '-'))}</span>` },
             { label: 'Status', valueHtml: readonlyStatusPillDropdown(status, 'stage', s.id || s.name || '') },
-            { label: 'Progress', valueHtml: `<span>${panelPercentText(stageProgress.pct)}</span>` },
             { label: 'Health', valueHtml: healthChip(health) },
             { label: 'Campaign', valueHtml: summaryCampaignId && summaryCampaignId !== '-' ? panelDetailLink(campaignName, 'campaign', summaryCampaignId, summaryCampaignId) : `<span>${escapeHtml(campaignName)}</span>` },
           ])
@@ -6477,7 +6705,6 @@ __NAV_CONTROLS__
         { label: 'Owner', valueHtml: panelCampaignOwnerControl },
         { label: 'Timeframe', valueHtml: panelCampaignTimeframeControl },
         { label: 'Status', valueHtml: panelCampaignStatusControl },
-        { label: 'Progress', valueHtml: `<span>${panelPercentText(progressPct)}</span>` },
         { label: 'Health', valueHtml: healthChip(c.health || c.campaign_health || 'not_started') },
         { label: 'Scope', valueHtml: scopeId && scopeId !== '-' ? panelDetailLink(scopeId, 'scope', scopeId) : `<span>${escapeHtml(panelDetailValueText(scopeId, '-'))}</span>` },
       ];
@@ -7698,6 +7925,7 @@ Cancel = Abort`
         if (nameKey && !usersByName[nameKey]) usersByName[nameKey] = user;
       }
       populateViewAsUsers();
+      populateUserQuickFilter();
     }
 
     function populateViewAsUsers() {
@@ -8046,17 +8274,41 @@ Cancel = Abort`
       });
       const contactName = panelDetailValueText(s.client_contact_name || '-', '-');
       const contactEmail = String(s.client_contact_email || '').trim();
-      const contactHtml = contactEmail
-        ? `<a href='mailto:${escapeHtml(contactEmail)}'>${escapeHtml(contactName)}</a>`
-        : `<span>${escapeHtml(contactName)}</span>`;
+      const canEditScopeDetails = panelMode
+        && editMode
+        && (
+          canUseControl('create_deal', currentRole)
+          || canUseControl('ops_approve_latest_deal', currentRole)
+          || canUseControl('manage_campaign_assignments', currentRole)
+        );
+      const clientNameInputId = `panelScopeClientName_${scopeObjId || 'scope'}`;
+      const contactNameInputId = `panelScopeContactName_${scopeObjId || 'scope'}`;
+      const contactEmailInputId = `panelScopeContactEmail_${scopeObjId || 'scope'}`;
       const panelDetailsHtml = panelMode
         ? panelDetailsSection([
-            { label: 'Client', valueHtml: `<span>${escapeHtml(panelDetailValueText(s.client_name || '-', '-'))}</span>` },
+            {
+              label: 'Client',
+              valueHtml: canEditScopeDetails
+                ? `<input id='${clientNameInputId}' type='text' value='${escapeHtml(String(s.client_name || ''))}' />`
+                : `<span>${escapeHtml(panelDetailValueText(s.client_name || '-', '-'))}</span>`,
+            },
             { label: 'AM (Owner)', valueHtml: `${userPill(amInitials || '--', true, am.name || null, { userId: am.user_id || s.am_user_id || '', roleKey: 'am' })}<span>${escapeHtml(panelDetailValueText(am.name || '-', '-'))}</span>` },
-            { label: 'Contact', valueHtml: contactHtml },
+            {
+              label: 'Contact Name',
+              valueHtml: canEditScopeDetails
+                ? `<input id='${contactNameInputId}' type='text' value='${escapeHtml(String(s.client_contact_name || ''))}' />`
+                : `<span>${escapeHtml(contactName)}</span>`,
+            },
+            {
+              label: 'Contact Email',
+              valueHtml: canEditScopeDetails
+                ? `<input id='${contactEmailInputId}' type='email' value='${escapeHtml(contactEmail)}' />`
+                : (contactEmail
+                  ? `<a href='mailto:${escapeHtml(contactEmail)}'>${escapeHtml(contactEmail)}</a>`
+                  : `<span>-</span>`),
+            },
             { label: 'Timeframe', valueHtml: `<span>${escapeHtml(panelTimeframeText(s.sow_start_date, s.sow_end_date))}</span>` },
             { label: 'Status', valueHtml: statusChip(statusNormalized) },
-            { label: 'Progress', valueHtml: `<span>${panelPercentText(scopeProgress.pct)}</span>` },
           ])
         : '';
       return `
@@ -8295,7 +8547,12 @@ Cancel = Abort`
       const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
       const data = await api(`/api/deals${actorQ}`);
       const productFilter = getFilterValue('qProducts') || 'all';
+      const scopeHealthFilter = getFilterValue('qScopeHealth') || 'all';
+      const selectedUserIds = selectedUserFilterSet();
       const items = data.items.filter(d => {
+        if (!scopeMatchesUserFilter(d, selectedUserIds)) return false;
+        const scopeHealth = String(d?.health || 'not_started').toLowerCase();
+        if (scopeHealthFilter !== 'all' && scopeHealth !== scopeHealthFilter) return false;
         if (productFilter === 'all') return true;
         const lines = Array.isArray(d?.product_lines) ? d.product_lines : [];
         const campaigns = Array.isArray(d?.campaigns) ? d.campaigns : [];
@@ -8703,6 +8960,8 @@ Cancel = Abort`
       const deepTarget = campaignDeepLinkTargetFromUrl();
       let statusFilter = getFilterValue('qCampaigns');
       const productFilter = getFilterValue('qProducts') || 'all';
+      const campaignHealthFilter = getFilterValue('qCampaignHealth') || 'all';
+      const selectedUserIds = selectedUserFilterSet();
       if (deepTarget && statusFilter !== 'all') {
         if (campaignFilterBeforeForceReveal == null) campaignFilterBeforeForceReveal = statusFilter;
         const filterEl = document.getElementById('qCampaigns');
@@ -8710,8 +8969,11 @@ Cancel = Abort`
         statusFilter = 'all';
       }
       const items = data.items.filter(c => {
+        if (!campaignMatchesUserFilter(c, selectedUserIds)) return false;
         const statusOk = statusFilter === 'all' || String(c.status || '').toLowerCase() === statusFilter;
         if (!statusOk) return false;
+        const healthOk = campaignHealthFilter === 'all' || String(c.health || c.campaign_health || 'not_started').toLowerCase() === campaignHealthFilter;
+        if (!healthOk) return false;
         if (productFilter === 'all') return true;
         return String(c.type || '').toLowerCase() === productFilter;
       });
@@ -11002,7 +11264,9 @@ Cancel = Abort`
     function objectPanelCanSave(meta = {}) {
       const type = String(meta.type || '').toLowerCase();
       if (type === 'scope') {
-        return true;
+        return canUseControl('create_deal', currentRole)
+          || canUseControl('ops_approve_latest_deal', currentRole)
+          || canUseControl('manage_campaign_assignments', currentRole);
       }
       if (type === 'stage') {
         return canUseControl('manage_campaign_assignments', currentRole);
@@ -11041,6 +11305,28 @@ Cancel = Abort`
         ccs_user_id: byRole.ccs || null,
         dn_user_id: byRole.dn || null,
         mm_user_id: byRole.mm || null,
+      };
+    }
+
+    function objectPanelScopeAmPayload() {
+      const panelBody = document.getElementById('objectPanelBody');
+      const hiddenAm = panelBody?.querySelector("input[data-scope-assign-hidden='1'][data-role-key='am']");
+      return {
+        actor_user_id: currentActorId,
+        am_user_id: String(hiddenAm?.value || '').trim() || null,
+      };
+    }
+
+    function objectPanelScopeContentPayload(objectId) {
+      const safeId = String(objectId || '').trim();
+      return {
+        actor_user_id: currentActorId,
+        client_name: String(document.getElementById(`panelScopeClientName_${safeId}`)?.value || '').trim(),
+        client_contact_name: String(document.getElementById(`panelScopeContactName_${safeId}`)?.value || '').trim(),
+        client_contact_email: String(document.getElementById(`panelScopeContactEmail_${safeId}`)?.value || '').trim(),
+        icp: String(document.getElementById(`panelScopeContent_icp_${safeId}`)?.value || '').trim(),
+        campaign_objective: String(document.getElementById(`panelScopeContent_campaign_objective_${safeId}`)?.value || '').trim(),
+        messaging_positioning: String(document.getElementById(`panelScopeContent_messaging_positioning_${safeId}`)?.value || '').trim(),
       };
     }
 
@@ -11103,7 +11389,38 @@ Cancel = Abort`
       const saveBtn = document.getElementById('objectPanelSaveBtn');
       if (saveBtn instanceof HTMLButtonElement) saveBtn.disabled = true;
       try {
-        if (type === 'campaign' || type === 'stage') {
+        if (type === 'scope') {
+          const scopePayload = objectPanelScopeAmPayload();
+          const scopeContentPayload = objectPanelScopeContentPayload(objectId);
+          const initialAmUserId = String(panelPayload?.scope?.am_user_id || panelPayload?.scope?.am_user?.user_id || '').trim() || null;
+          if (!scopePayload.am_user_id) throw new Error('AM is required');
+          if (scopePayload.am_user_id !== initialAmUserId) {
+            await api(`/api/scopes/${encodeURIComponent(objectId)}/am`, {
+              method: 'PATCH',
+              body: JSON.stringify(scopePayload),
+            });
+          }
+          const initialClientName = String(panelPayload?.scope?.client_name || '').trim();
+          const initialContactName = String(panelPayload?.scope?.client_contact_name || '').trim();
+          const initialContactEmail = String(panelPayload?.scope?.client_contact_email || '').trim();
+          const initialIcp = String(panelPayload?.scope?.icp || '').trim();
+          const initialObjective = String(panelPayload?.scope?.campaign_objective || '').trim();
+          const initialMessaging = String(panelPayload?.scope?.messaging_positioning || '').trim();
+          const scopeContentChanged = (
+            scopeContentPayload.client_name !== initialClientName
+            || scopeContentPayload.client_contact_name !== initialContactName
+            || scopeContentPayload.client_contact_email !== initialContactEmail
+            || scopeContentPayload.icp !== initialIcp
+            || scopeContentPayload.campaign_objective !== initialObjective
+            || scopeContentPayload.messaging_positioning !== initialMessaging
+          );
+          if (scopeContentChanged) {
+            await api(`/api/scopes/${encodeURIComponent(objectId)}/content`, {
+              method: 'PATCH',
+              body: JSON.stringify(scopeContentPayload),
+            });
+          }
+        } else if (type === 'campaign' || type === 'stage') {
           const targetCampaignId = String(
             panelPayload?.campaign?.id
             || panelPayload?.campaign?.campaign_id
@@ -11329,10 +11646,26 @@ Cancel = Abort`
     function objectPanelFooterHtml(payload = {}) {
       const meta = objectPanelMetaFromPayload(payload);
       const dueText = meta.due ? `Due ${niceDate(meta.due)}` : '';
-      const openBtn = meta.openPath ? `<button class='primary' onclick='window.location.href="${String(meta.openPath).replace(/"/g, '&quot;')}"'>Open</button>` : '';
       const editing = objectPanelIsEditing(payload);
       const canSave = editing && objectPanelCanSave(meta);
       const saveBtn = canSave ? `<button id='objectPanelSaveBtn' class='primary' onclick='saveObjectPanelEdits()'>Save</button>` : '';
+      const scopeStatus = String(payload?.scope?.status || '').toLowerCase();
+      const scopeId = String(payload?.scope?.id || '').trim();
+      const safeScopeId = scopeId.replace(/'/g, '&#39;');
+      const showScopeApprove = meta.type === 'scope'
+        && !!scopeId
+        && canApproveScopes()
+        && ['submitted', 'readiness_failed', 'ops_approved', 'draft'].includes(scopeStatus);
+      const showScopeGenerate = meta.type === 'scope'
+        && !!scopeId
+        && canGenerateScopeCampaigns()
+        && scopeStatus === 'readiness_passed';
+      const scopeButtons = (showScopeApprove || showScopeGenerate)
+        ? `${showScopeApprove ? `<button onclick="approveScope('${safeScopeId}')">Approve</button>` : ''}${showScopeGenerate ? `<button class='primary' onclick="generateCampaignsForScope('${safeScopeId}')">Generate</button>` : ''}`
+        : '';
+      const openBtn = (meta.type !== 'scope' && meta.openPath)
+        ? `<button class='primary' onclick='window.location.href="${String(meta.openPath).replace(/"/g, '&quot;')}"'>Open</button>`
+        : '';
       return `
         <div class='object-panel-footer-left'>
           ${statusChip(meta.status)}
@@ -11341,6 +11674,7 @@ Cancel = Abort`
         </div>
         <div class='object-panel-footer-right'>
           ${saveBtn}
+          ${scopeButtons}
           ${openBtn}
         </div>
       `;
@@ -11520,9 +11854,11 @@ Cancel = Abort`
       footer.innerHTML = objectPanelFooterHtml(payload);
       const bodyBaseHtml = extractPanelModuleBodyHtml(moduleHtml)
         || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`;
+      const progressHtml = objectPanelProgressHtml(payload);
       const teamHtml = objectPanelTeamHtml(payload);
+      const scopeContentHtml = objectPanelScopeContentHtml(payload);
       const childrenHtml = objectPanelChildrenHtml(payload);
-      body.innerHTML = panelBodyModulesHtml(bodyBaseHtml, teamHtml, childrenHtml);
+      body.innerHTML = panelBodyModulesHtml(bodyBaseHtml, `${progressHtml}${childrenHtml}${teamHtml}${scopeContentHtml}`, '');
       panel.classList.add('open');
       panel.classList.remove('hidden');
       const isMobile = (window.innerWidth || 0) <= 980;
@@ -12644,12 +12980,13 @@ Cancel = Abort`
       return u;
     }
 
-    async function buildDealPayload() {
-      const u = await getDemoUsers();
+    function buildDealPayload() {
+      const actorId = String(currentActorId || '').trim();
+      if (!actorId) throw new Error('No active actor selected');
       const payload = {
         client_name: document.getElementById('dealClientName').value.trim(),
         brand_publication: document.getElementById('dealPublication').value,
-        am_user_id: u.am,
+        am_user_id: actorId,
         sow_start_date: document.getElementById('dealSowStart').value,
         sow_end_date: document.getElementById('dealSowEnd').value,
         icp: document.getElementById('dealICP').value.trim(),
@@ -12671,9 +13008,10 @@ Cancel = Abort`
     async function submitNewDeal(event) {
       if (event) event.preventDefault();
       try {
-        const u = await getDemoUsers();
-        const payload = await buildDealPayload();
-        const result = await api(`/api/deals?actor_user_id=${u.am}`, { method: 'POST', body: JSON.stringify(payload) });
+        const actorId = String(currentActorId || '').trim();
+        if (!actorId) throw new Error('No active actor selected');
+        const payload = buildDealPayload();
+        const result = await api(`/api/deals?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
         log('Scope created', result);
         toast(`Created ${result.id}`, 'success');
         await refreshAll();
@@ -12684,10 +13022,11 @@ Cancel = Abort`
 
     async function submitAndRouteLatestDeal() {
       try {
-        const u = await getDemoUsers();
-        const payload = await buildDealPayload();
-        const created = await api(`/api/deals?actor_user_id=${u.am}`, { method: 'POST', body: JSON.stringify(payload) });
-        const submitted = await api(`/api/deals/${created.id}/submit?actor_user_id=${u.am}`, { method: 'POST' });
+        const actorId = String(currentActorId || '').trim();
+        if (!actorId) throw new Error('No active actor selected');
+        const payload = buildDealPayload();
+        const created = await api(`/api/deals?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
+        const submitted = await api(`/api/deals/${created.id}/submit?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST' });
         log('Scope created + submitted', submitted);
         toast(`Submitted ${submitted.id} to Ops`, 'success');
         await refreshAll();
