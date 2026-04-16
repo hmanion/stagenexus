@@ -7242,7 +7242,13 @@ __NAV_CONTROLS__
     async function renderMyWork(role, actorId) {
       const modeEl = document.getElementById('myWorkMode');
       const includeMode = String(modeEl?.value || 'owned_only');
-      myWorkCache = await api(`/api/my-work?actor_user_id=${actorId}&role=${role}&include_mode=${encodeURIComponent(includeMode)}`);
+      if (!actorId || actorId === 'null' || actorId === 'undefined') {
+        myWorkCache = { summary: { total: 0 }, queues: {} };
+        campaignHealthByCampaignId = {};
+        renderMyWorkFromCache();
+        return;
+      }
+      myWorkCache = await api(`/api/my-work?actor_user_id=${encodeURIComponent(actorId)}&role=${encodeURIComponent(role)}&include_mode=${encodeURIComponent(includeMode)}`);
       try {
         const health = await api(`/api/campaigns/health?owner=${encodeURIComponent(actorId)}&limit=500&offset=0`);
         campaignHealthByCampaignId = {};
