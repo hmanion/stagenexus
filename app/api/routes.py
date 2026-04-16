@@ -811,11 +811,46 @@ def _can_actor_generate_campaigns(db: Session, actor: Any) -> bool:
     return actor.seniority == SeniorityLevel.LEADERSHIP and actor.primary_team == TeamName.CLIENT_SERVICES
 
 
+# === Shared route helpers ===
+
+def _get_actor(db: Session, actor_user_id: str) -> Any:
+    return AuthzService(db).actor(actor_user_id)
+
+
+def _get_deal_or_404(db: Session, deal_id: str, *, detail: str = "scope not found") -> Deal:
+    deal = _resolve_by_identifier(db, Deal, deal_id)
+    if not deal:
+        raise HTTPException(status_code=404, detail=detail)
+    return deal
+
+
+def _require_deal_owner_or_roles(
+    db: Session,
+    actor_user_id: str,
+    deal: Deal,
+    allowed_roles: set[RoleName],
+) -> Any:
+    authz = AuthzService(db)
+    actor = authz.actor(actor_user_id)
+    authz.require_deal_owner_or_roles(actor, deal, allowed_roles)
+    return actor
+
+
+def _build_deal_out(db: Session, deal: Deal) -> DealOut:
+    client = db.get(Client, deal.client_id)
+    return DealOut(
+        id=deal.display_id,
+        status=deal.status.value,
+        client_name=client.name if client else None,
+        brand_publication=deal.brand_publication.value,
+    )
+
+
 @router.post("/deals", response_model=DealOut)
 @router.post("/scopes", response_model=DealOut)
 def create_deal(payload: DealCreateIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor = _get_actor(db, actor_user_id)
     authz.require_any(actor, {RoleName.AM, RoleName.ADMIN})
     if payload.am_user_id != actor_user_id and RoleName.ADMIN not in actor.roles:
         raise HTTPException(status_code=403, detail="actor must match am_user_id unless admin")
@@ -825,47 +860,30 @@ def create_deal(payload: DealCreateIn, actor_user_id: str, db: Session = Depends
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.commit()
-    client = db.get(Client, deal.client_id)
-    return DealOut(
-        id=deal.display_id,
-        status=deal.status.value,
-        client_name=client.name if client else None,
-        brand_publication=deal.brand_publication.value,
-    )
+    return _build_deal_out(db, deal)
 
 
 @router.post("/deals/{deal_id}/submit", response_model=DealOut)
 @router.post("/scopes/{deal_id}/submit", response_model=DealOut)
 def submit_deal(deal_id: str, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
-
-    authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
-    authz.require_deal_owner_or_roles(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS})
+    deal = _get_deal_or_404(db, deal_id)
+    _require_deal_owner_or_roles(db, actor_user_id, deal, {RoleName.ADMIN, RoleName.HEAD_OPS})
 
     DealService(db).submit_deal(deal)
     db.commit()
-    client = db.get(Client, deal.client_id)
-    return DealOut(
-        id=deal.display_id,
-        status=deal.status.value,
-        client_name=client.name if client else None,
-        brand_publication=deal.brand_publication.value,
-    )
+    return _build_deal_out(db, deal)
 
 
 @router.patch("/deals/{deal_id}/am")
 @router.patch("/scopes/{deal_id}/am")
 def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depends(get_db)):
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
-
-    authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
-    authz.require_deal_owner_or_roles(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES})
+    deal = _get_deal_or_404(db, deal_id)
+    _require_deal_owner_or_roles(
+        db,
+        payload.actor_user_id,
+        deal,
+        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    )
 
     next_am = db.get(User, payload.am_user_id)
     if not next_am:
@@ -899,13 +917,13 @@ def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depend
 @router.patch("/deals/{deal_id}/content")
 @router.patch("/scopes/{deal_id}/content")
 def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Session = Depends(get_db)):
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
-
-    authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
-    authz.require_deal_owner_or_roles(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES})
+    deal = _get_deal_or_404(db, deal_id)
+    _require_deal_owner_or_roles(
+        db,
+        payload.actor_user_id,
+        deal,
+        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    )
 
     client = db.get(Client, deal.client_id)
     if not client:
@@ -1018,10 +1036,8 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
 @router.patch("/deals/{deal_id}/timeframe")
 @router.patch("/scopes/{deal_id}/timeframe")
 def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Session = Depends(get_db)):
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
-    actor = AuthzService(db).actor(payload.actor_user_id)
+    deal = _get_deal_or_404(db, deal_id)
+    actor = _get_actor(db, payload.actor_user_id)
     if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
         raise HTTPException(status_code=403, detail="only managers or leadership can update scope timeframe")
     if payload.sow_start_date is None and payload.sow_end_date is None:
@@ -1267,6 +1283,7 @@ def list_deals(
         for e in db.scalars(select(WorkflowStepEffort).where(WorkflowStepEffort.workflow_step_id.in_(step_ids))).all():
             efforts_by_step.setdefault(e.workflow_step_id, []).append(e)
     timeline_health = TimelineHealthService(db)
+    team_inference = TeamInferenceService(db)
     clients = {c.id: c for c in db.scalars(select(Client)).all()}
     contacts_by_client: dict[str, list[ClientContact]] = {}
     for contact in db.scalars(select(ClientContact).order_by(ClientContact.created_at.asc())).all():
@@ -1793,7 +1810,7 @@ def list_campaigns(
                         "current_due": s.current_due.isoformat() if s.current_due else None,
                         "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
                         "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
-                        "completion_date": s.completion_date.isoformat() if s.completion_date else None,
+                        "completion_date": s.actual_done.isoformat() if s.actual_done else None,
                         "next_owner_user_id": s.next_owner_user_id,
                         "owner_initials": _initials_for_user_id(s.next_owner_user_id, users_by_id),
                         "participant_initials": _participant_initials_for_step(s, step_efforts_by_step_id, users_by_id),
@@ -2723,7 +2740,7 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                     "current_start": s.current_start.isoformat() if s.current_start else None,
                     "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
                     "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
-                    "completion_date": s.completion_date.isoformat() if s.completion_date else None,
+                    "completion_date": s.actual_done.isoformat() if s.actual_done else None,
                     "waiting_on_type": s.waiting_on_type.value if s.waiting_on_type else None,
                     "blocker_reason": s.blocker_reason,
                     "step_state": (
@@ -3288,7 +3305,7 @@ def list_workflow_steps(db: Session = Depends(get_db)):
                 "current_due": s.current_due.isoformat() if s.current_due else None,
                 "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
                 "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
-                "completion_date": s.completion_date.isoformat() if s.completion_date else None,
+                "completion_date": s.actual_done.isoformat() if s.actual_done else None,
                 "actual_done": s.actual_done.isoformat() if s.actual_done else None,
                 "parent_type": "stage" if s.stage_id else "campaign",
                 "next_owner_user_id": s.next_owner_user_id,
