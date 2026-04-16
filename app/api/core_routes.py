@@ -33,6 +33,7 @@ from app.models.domain import (
     Milestone,
     PerformanceResult,
     Publication,
+    Role,
     ProductModule,
     Comment,
     ReviewRoundEvent,
