@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import router
+from app.api.router import router
 from app.db.base import Base
 from app.db.schema_updates import assert_runtime_integrity, ensure_runtime_schema
 from app.db.session import assert_sqlite_foreign_keys_enabled, engine
