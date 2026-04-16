@@ -44,7 +44,6 @@ from app.models.domain import (
     Note,
     SowChangeApproval,
     SowChangeRequest,
-    Role,
     RoleName,
     TeamName,
     SeniorityLevel,
@@ -243,7 +242,6 @@ def _evaluate_deliverable_health_batch(db: Session, deliverables: list[Deliverab
         efforts_by_step.setdefault(effort.workflow_step_id, []).append(effort)
 
     timeline_health = TimelineHealthService(db)
-    team_inference = TeamInferenceService(db)
     payload_by_identifier: dict[str, dict[str, Any]] = {}
     for deliverable in deliverables:
         campaign = campaigns_by_id.get(deliverable.campaign_id) if deliverable.campaign_id else None
@@ -831,7 +829,7 @@ def _require_deal_owner_or_roles(
     allowed_roles: set[RoleName],
 ) -> Any:
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor = _get_actor(db, actor_user_id)
     authz.require_deal_owner_or_roles(actor, deal, allowed_roles)
     return actor
 
@@ -846,11 +844,19 @@ def _build_deal_out(db: Session, deal: Deal) -> DealOut:
     )
 
 
+def _build_scope_timeframe_response(deal: Deal) -> dict[str, str | None]:
+    return {
+        "scope_id": deal.display_id,
+        "sow_start_date": deal.sow_start_date.isoformat() if deal.sow_start_date else None,
+        "sow_end_date": deal.sow_end_date.isoformat() if deal.sow_end_date else None,
+    }
+
+
 @router.post("/deals", response_model=DealOut)
 @router.post("/scopes", response_model=DealOut)
 def create_deal(payload: DealCreateIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    authz = AuthzService(db)
     actor = _get_actor(db, actor_user_id)
+    authz = AuthzService(db)
     authz.require_any(actor, {RoleName.AM, RoleName.ADMIN})
     if payload.am_user_id != actor_user_id and RoleName.ADMIN not in actor.roles:
         raise HTTPException(status_code=403, detail="actor must match am_user_id unless admin")
@@ -1037,7 +1043,12 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
 @router.patch("/scopes/{deal_id}/timeframe")
 def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Session = Depends(get_db)):
     deal = _get_deal_or_404(db, deal_id)
-    actor = _get_actor(db, payload.actor_user_id)
+    actor = _require_deal_owner_or_roles(
+        db,
+        payload.actor_user_id,
+        deal,
+        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    )
     if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
         raise HTTPException(status_code=403, detail="only managers or leadership can update scope timeframe")
     if payload.sow_start_date is None and payload.sow_end_date is None:
@@ -1070,20 +1081,19 @@ def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Se
         )
     )
     db.commit()
-    return {
-        "scope_id": deal.display_id,
-        "sow_start_date": deal.sow_start_date.isoformat() if deal.sow_start_date else None,
-        "sow_end_date": deal.sow_end_date.isoformat() if deal.sow_end_date else None,
-    }
+    return _build_scope_timeframe_response(deal)
 
 
 @router.delete("/deals/{deal_id}")
 @router.delete("/scopes/{deal_id}")
 def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get_db)):
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
-    actor = AuthzService(db).actor(payload.actor_user_id)
+    deal = _get_deal_or_404(db, deal_id)
+    actor = _require_deal_owner_or_roles(
+        db,
+        payload.actor_user_id,
+        deal,
+        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    )
     if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
         raise HTTPException(status_code=403, detail="only managers or leadership can delete scopes")
 
@@ -1109,12 +1119,10 @@ def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get
 @router.post("/deals/{deal_id}/ops-approve", response_model=DealOut)
 @router.post("/scopes/{deal_id}/ops-approve", response_model=DealOut)
 def ops_approve_deal(deal_id: str, payload: OpsApproveIn, actor_user_id: str, db: Session = Depends(get_db)) -> DealOut:
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
+    deal = _get_deal_or_404(db, deal_id)
 
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor = _get_actor(db, actor_user_id)
     if not _can_actor_approve_scope(db, actor):
         raise HTTPException(status_code=403, detail="insufficient permissions to approve scope")
 
@@ -1122,26 +1130,18 @@ def ops_approve_deal(deal_id: str, payload: OpsApproveIn, actor_user_id: str, db
         payload.head_ops_user_id = actor_user_id
     deal = DealService(db).ops_approve(deal, payload)
     db.commit()
-    client = db.get(Client, deal.client_id)
-    return DealOut(
-        id=deal.display_id,
-        status=deal.status.value,
-        client_name=client.name if client else None,
-        brand_publication=deal.brand_publication.value,
-    )
+    return _build_deal_out(db, deal)
 
 
 @router.post("/deals/{deal_id}/generate-campaigns", response_model=list[CampaignOut])
 @router.post("/scopes/{deal_id}/generate-campaigns", response_model=list[CampaignOut])
 def generate_campaigns(deal_id: str, actor_user_id: str, db: Session = Depends(get_db)) -> list[CampaignOut]:
-    deal = _resolve_by_identifier(db, Deal, deal_id)
-    if not deal:
-        raise HTTPException(status_code=404, detail="scope not found")
+    deal = _get_deal_or_404(db, deal_id)
     if deal.status != DealStatus.READINESS_PASSED:
         raise HTTPException(status_code=400, detail="scope must pass operational readiness gate")
 
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor = _get_actor(db, actor_user_id)
     if not _can_actor_generate_campaigns(db, actor):
         raise HTTPException(status_code=403, detail="insufficient permissions to generate campaigns")
 
