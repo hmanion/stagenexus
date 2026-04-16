@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
@@ -16,40 +17,84 @@ from app.models.domain import (
     Deal,
     DealAttachment,
     DealProductLine,
+    CapacityLedger,
     Deliverable,
+    DeliverableStage,
+    DeliverableStatus,
+    Escalation,
     GlobalStatus,
+    ManualRisk,
     Milestone,
+    MilestoneSlaHealth,
     Publication,
+    Role,
     RoleName,
+    Review,
+    ReviewRoundEvent,
+    ReviewWindow,
+    ReviewWindowStatus,
+    ReviewWindowType,
     SeniorityLevel,
     Stage,
+    SystemRisk,
+    TeamName,
     User,
     UserRoleAssignment,
     WorkflowStep,
     WorkflowStepEffort,
 )
-from app.schemas.campaigns import CampaignOut, CampaignStatusUpdateIn
+from app.schemas.campaigns import (
+    CampaignAssignmentsUpdateIn,
+    CampaignDatesUpdateIn,
+    CampaignDescendantStatusBulkIn,
+    CampaignOut,
+    CampaignStatusUpdateIn,
+)
 from app.schemas.deals import OpsApproveIn, ScopeDeleteIn
-from app.schemas.milestones import MilestoneUpdateIn
+from app.schemas.deliverables import (
+    DeliverableDatesUpdateIn,
+    DeliverableDueUpdateIn,
+    DeliverableOwnerUpdateIn,
+    DeliverableStageUpdateIn,
+    DeliverableTransitionIn,
+    ReviewRoundIncrementIn,
+)
+from app.schemas.milestones import (
+    MilestoneCompletionUpdateIn,
+    MilestoneSlaOverrideIn,
+    MilestoneUpdateIn,
+)
 from app.services.authz_service import AuthzService
 from app.services.campaign_health_service import CampaignHealthService
+from app.services.deliverable_derivation_service import DeliverableDerivationService
+from app.services.deliverable_workflow_service import DeliverableWorkflowService
 from app.services.id_service import PublicIdService
+from app.services.milestone_service import MilestoneService
+from app.services.stage_integrity_service import StageIntegrityService
+from app.services.status_rollup_service import StatusRollupService
 from app.services.team_inference_service import TeamInferenceService
 from app.services.timeline_health_service import TimelineHealthService
+from app.services.workflow_engine_service import WorkflowEngineService
 
 from app.api.core_routes import (
+    _assignment_role_lane,
     _actor_has_control_permission,
     _actor_has_full_scope_campaign_visibility,
+    _campaign_for_deliverable,
     _campaign_timeframe_from_milestones,
     _delete_campaign_graph,
+    _delete_deliverable_graph,
+    _deliverable_matches_slot_lane,
     _deliverable_stage_from_record,
     _derived_deliverable_status,
+    _evaluate_deliverable_health,
     _initials_for_user_id,
     _normalize_campaign_status,
     _normalize_deliverable_status,
     _normalize_step_status,
     _participant_initials_for_step,
     _resolve_by_identifier,
+    _step_module_type,
     _step_linked_deliverable,
 )
 

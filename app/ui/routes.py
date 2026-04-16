@@ -275,30 +275,21 @@ def index() -> str:
       flex: 1 1 auto;
     }
     body.screen-capacity .app-shell {
-      max-width: 100%;
+      min-height: calc(100vh - var(--header-offset) - var(--footer-offset) - 32px);
     }
     body.screen-capacity main {
-      max-width: 100%;
-    }
-    body.screen-capacity #sectionCapacityRisk {
-      grid-template-columns: 1fr;
+      min-height: 100%;
+      align-content: stretch;
     }
     body.screen-capacity #sectionCapacity {
-      min-height: calc(100vh - var(--header-offset) - var(--footer-offset) - 44px);
-      display: grid;
-      grid-template-rows: auto 1fr;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
     }
     body.screen-capacity #sectionCapacity .capacity-wrap {
+      flex: 1 1 auto;
+      min-height: 0;
       max-height: none;
-      height: 100%;
-      min-height: calc(100vh - var(--header-offset) - var(--footer-offset) - 190px);
-    }
-    .capacity-page {
-      background: transparent;
-      border: 0;
-      border-radius: 0;
-      padding: 0;
-      box-shadow: none;
     }
     .object-panel-host {
       width: min(380px, 32vw);
@@ -2326,6 +2317,23 @@ def index() -> str:
       gap: 4px;
     }
     .cap-user strong { font-size: 0.95rem; }
+    .cap-user-name-btn {
+      border: 0;
+      background: transparent;
+      padding: 0;
+      font: inherit;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--ink);
+      text-align: left;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+      line-height: 1.2;
+    }
+    .cap-user-name-btn:hover {
+      color: var(--cobalt-mid);
+    }
     .cap-meta { font-size: 0.93rem; color: var(--ink-3); }
     .cap-cell-btn {
       width: 100%;
@@ -2344,6 +2352,31 @@ def index() -> str:
       align-items: center;
       gap: 8px;
       margin-bottom: 6px;
+    }
+    .cap-main-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .cap-donut {
+      --cap-pct: 0;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      position: relative;
+      flex: 0 0 auto;
+      background: conic-gradient(
+        rgba(13, 13, 15, 0.58) calc(var(--cap-pct) * 1%),
+        rgba(13, 13, 15, 0.18) 0
+      );
+    }
+    .cap-donut::after {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      border-radius: 999px;
+      background: var(--surface);
     }
     .cap-main .tag {
       flex: 0 0 auto;
@@ -3402,9 +3435,8 @@ __NAV_CONTROLS__
       </article>
     </section>
 
-    <section class='capacity-page' id='sectionCapacity'>
+    <section class='card' id='sectionCapacity'>
       <h3>Capacity Ledger</h3>
-      <div class='timeline-title' style='margin-top:8px;'>Timeline / Gantt Bar</div>
       <div class='capacity-controls'>
         <button id='capacityWeekBtn' onclick='setCapacityView("day")'>Week</button>
         <button id='capacityMonthBtn' onclick='setCapacityView("month")' class='primary'>Month (4w)</button>
@@ -5760,6 +5792,104 @@ __NAV_CONTROLS__
       `;
     }
 
+    function userCapacityTagClass(utilizationPct) {
+      const pct = Number(utilizationPct || 0);
+      if (!Number.isFinite(pct) || pct <= 0) return 'neutral';
+      if (pct > 100) return 'risk';
+      if (pct >= 90) return 'review';
+      return 'ok';
+    }
+
+    function userPanelDetailsModuleHtml(user = {}) {
+      const teamText = `${escapeHtml(toTitle(String(user?.team || '-').replaceAll('_', ' ')))}${user?.editorial_subteam ? ` (${escapeHtml(String(user.editorial_subteam).toUpperCase())})` : ''}`;
+      return `
+        <div class='module-fields module-body object-panel-user-details-module'>
+          <div class='panel-details-title'>Details</div>
+          <div class='panel-details-grid'>
+            <div class='panel-details-row'>
+              <div class='panel-details-label'>Name</div>
+              <div class='panel-details-value'><span>${escapeHtml(String(user?.name || '-'))}</span></div>
+            </div>
+            <div class='panel-details-row'>
+              <div class='panel-details-label'>Team</div>
+              <div class='panel-details-value'><span>${teamText}</span></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function userPanelCampaignsModuleHtml(campaigns = []) {
+      const safeCampaigns = (Array.isArray(campaigns) ? campaigns : []).filter(Boolean);
+      const rows = safeCampaigns.map(c => {
+        const campaignId = String(c?.id || '').trim();
+        const title = String(c?.title || c?.id || '-').trim() || '-';
+        const safeCampaignId = campaignId.replace(/'/g, '&#39;');
+        if (!campaignId) {
+          return `
+            <li class='object-panel-children-item'>
+              <span class='object-panel-child-dot' aria-hidden='true'></span>
+              <span>${escapeHtml(title)}</span>
+            </li>
+          `;
+        }
+        return `
+          <li class='object-panel-children-item'>
+            <span class='object-panel-child-dot' aria-hidden='true'></span>
+            <button
+              type='button'
+              class='object-panel-child-link'
+              data-object-panel-child-open='1'
+              data-module-type='campaign'
+              data-object-id='${safeCampaignId}'
+              data-campaign-id='${safeCampaignId}'
+            >
+              ${escapeHtml(title)}
+            </button>
+          </li>
+        `;
+      }).join('');
+      return `
+        <div class='module-fields module-body object-panel-user-campaigns-module'>
+          <div class='panel-details-title'>Campaigns</div>
+          ${rows
+            ? `<ul class='object-panel-children-list'>${rows}</ul>`
+            : "<div class='sub'>No campaigns assigned.</div>"}
+        </div>
+      `;
+    }
+
+    function userPanelCapacityModuleHtml(capacityRows = []) {
+      const rows = (Array.isArray(capacityRows) ? capacityRows : []).slice(0, 6);
+      const content = rows.map(r => {
+        const weekStart = String(r?.week_start || '').trim();
+        const forecast = Number(r?.forecast_planned_hours || 0);
+        const capacity = Number(r?.capacity_hours || 0);
+        const active = Number(r?.active_planned_hours || 0);
+        const utilization = Number(r?.utilization_pct || 0);
+        const pctLabel = Number.isFinite(utilization) ? `${Math.round(utilization)}%` : '0%';
+        const tagClass = userCapacityTagClass(utilization);
+        return `
+          <div class='panel-details-row'>
+            <div class='panel-details-label'>${escapeHtml(weekStart ? niceDate(weekStart) : '-')}</div>
+            <div class='panel-details-value'>
+              <span>${Number.isFinite(forecast) ? forecast.toFixed(1) : '0.0'} / ${Number.isFinite(capacity) ? capacity.toFixed(1) : '0.0'}h</span>
+              <span class='tag ${tagClass}'>${escapeHtml(pctLabel)}</span>
+              <span class='sub'>Active ${Number.isFinite(active) ? active.toFixed(1) : '0.0'}h</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+      return `
+        <div class='module-fields module-body object-panel-user-capacity-module'>
+          <div class='panel-details-title'>Capacity</div>
+          ${content
+            ? `<div class='panel-details-grid'>${content}</div>`
+            : "<div class='sub'>No capacity rows available.</div>"}
+        </div>
+      `;
+    }
+
     function roleShortLabel(roleKey) {
       const key = String(roleKey || '').toLowerCase().trim();
       if (key === 'ccs') return 'CC Support';
@@ -5819,7 +5949,12 @@ __NAV_CONTROLS__
     function panelTeamUserHtml(user = {}) {
       if (!user?.assigned) return "<span class='tag warn'>Unassigned</span>";
       const isOwner = !!user?.isOwner;
-      return `${userPill(user?.initials || '--', isOwner, user?.name || null, { userId: user?.userId || '', roleKey: user?.roleKey || '' })}<span>${escapeHtml(panelDetailValueText(user?.name, '-'))}</span>`;
+      const name = panelDetailValueText(user?.name, '-');
+      const userId = String(user?.userId || '').trim();
+      const nameHtml = userId
+        ? `<button type='button' class='panel-details-link' onclick="openObjectPanelChild('user', '${userId.replace(/'/g, '&#39;')}', '')">${escapeHtml(name)}</button>`
+        : `<span>${escapeHtml(name)}</span>`;
+      return `${userPill(user?.initials || '--', isOwner, user?.name || null, { userId: userId, roleKey: user?.roleKey || '' })}${nameHtml}`;
     }
 
     function panelTeamRoleEditorHtml(options = {}) {
@@ -12025,25 +12160,11 @@ Cancel = Abort`
         const u = payload.user || {};
         const capRows = Array.isArray(u?.capacity?.rows) ? u.capacity.rows : [];
         const campaigns = Array.isArray(u?.campaigns_participated) ? u.campaigns_participated : [];
-        moduleHtml = `
-          <div class='module-popover' data-module='user'>
-            <div class='module-head'>
-              <div class='module-head-left'>
-                <span class='module-icon'>U</span>
-                <div class='module-title-block'>
-                  <div class='module-title'>${escapeHtml(String(u.name || '-'))}</div>
-                  <div class='module-subtitle'>User</div>
-                </div>
-              </div>
-            </div>
-            <div class='module-fields module-body'>
-              <div class='module-row'><span>Name:</span><span>${escapeHtml(String(u.name || '-'))}</span></div>
-              <div class='module-row'><span>Team:</span><span>${escapeHtml(toTitle(String(u.team || '-').replaceAll('_', ' ')))}${u.editorial_subteam ? ` (${escapeHtml(String(u.editorial_subteam).toUpperCase())})` : ''}</span></div>
-              <div class='module-row span-2'><span>Capacity:</span><span>${capRows.slice(0, 4).map(r => `${niceDate(r.week_start)} ${Number(r.utilization_pct || 0).toFixed(0)}%`).join(' · ') || '-'}</span></div>
-              <div class='module-row span-2'><span>Campaigns participated:</span><span>${campaigns.map(c => escapeHtml(String(c.title || c.id || '-'))).join(', ') || '-'}</span></div>
-            </div>
-          </div>
-        `;
+        moduleHtml = [
+          userPanelDetailsModuleHtml(u),
+          userPanelCampaignsModuleHtml(campaigns),
+          userPanelCapacityModuleHtml(capRows),
+        ].join('');
       }
       panelPayload = payload;
       panelOpen = true;
@@ -12058,8 +12179,11 @@ Cancel = Abort`
       syncObjectPanelHeaderIconSize(header);
       requestAnimationFrame(() => syncObjectPanelHeaderIconSize(header));
       footer.innerHTML = objectPanelFooterHtml(payload);
-      const bodyBaseHtml = extractPanelModuleBodyHtml(moduleHtml)
-        || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`;
+      const panelType = String(payload?.module_type || '').toLowerCase();
+      const bodyBaseHtml = (panelType === 'user')
+        ? String(moduleHtml || '').trim()
+        : (extractPanelModuleBodyHtml(moduleHtml)
+            || `<div class='cap-popover-list'>${details.map(d => `<div class='cap-pop-item'>${d}</div>`).join('') || "<div class='sub'>No details available.</div>"}</div>`);
       const progressHtml = objectPanelProgressHtml(payload);
       const teamHtml = objectPanelTeamHtml(payload);
       const scopeContentHtml = objectPanelScopeContentHtml(payload);
@@ -12692,7 +12816,7 @@ Cancel = Abort`
       });
       if (currentActorId) q.set('actor_user_id', String(currentActorId));
       const actorSeniority = String(currentActorIdentity?.seniority || '').toLowerCase();
-      if (actorSeniority === 'manager' || actorSeniority === 'leadership') {
+      if (actorSeniority === 'manager') {
         q.set('team_scope', 'managed');
       }
       const data = await api(`/api/capacity/matrix?${q.toString()}`);
@@ -12740,6 +12864,11 @@ Cancel = Abort`
         `;
       }
       const rowsHtml = users.map(user => {
+        const userName = String(user?.user_name || '').trim() || '-';
+        const userId = String(user?.user_id || '').trim();
+        const userNameHtml = userId
+          ? `<button type='button' class='cap-user-name-btn' onclick="openObjectPanelChild('user', '${userId.replace(/'/g, '&#39;')}', '')">${escapeHtml(userName)}</button>`
+          : `<strong>${escapeHtml(userName)}</strong>`;
         const rowCells = capacityColumns.map(column => {
           const cell = capacityDisplayCells[capacityCellKey(user.user_id, column.key)] || {
             capacity_hours: 0,
@@ -12754,12 +12883,19 @@ Cancel = Abort`
           const more = capacityShowItems && cell.items_total > 2 ? `<div class='cap-preview-more'>+${cell.items_total - 2} more</div>` : '';
           const click = cell.items_total ? `onclick='openCapacityCellPopover(this, "${user.user_id}", "${column.key}")'` : '';
           const tdClass = capacityCellClass(cell);
+          const forecastHours = Number(cell.forecast_planned_hours || 0);
+          const capacityHours = Number(cell.capacity_hours || 0);
+          const utilizationPct = capacityHours > 0 ? Math.max(0, Math.min(100, (forecastHours / capacityHours) * 100)) : 0;
+          const utilizationLabel = `${Math.round(utilizationPct)}% capacity used`;
           return `
             <td class='${tdClass}'>
               <button class='cap-cell-btn' ${click}>
                 <div class='cap-main'>
-                  <span class='cap-hours'>${Number(cell.forecast_planned_hours || 0).toFixed(1)} / ${Number(cell.capacity_hours || 0).toFixed(1)}h</span>
-                  ${capStatusChip(cell)}
+                  <span class='cap-hours'>${forecastHours.toFixed(1)} / ${capacityHours.toFixed(1)}h</span>
+                  <span class='cap-main-right'>
+                    <span class='cap-donut' style='--cap-pct:${utilizationPct.toFixed(1)};' title='${utilizationLabel}' aria-label='${utilizationLabel}'></span>
+                    ${capStatusChip(cell)}
+                  </span>
                 </div>
                 <div class='cap-meta'>Active ${Number(cell.active_planned_hours || 0).toFixed(1)}h</div>
                 ${capacityShowItems ? `<div class='cap-preview'>${preview}${more}</div>` : ''}
@@ -12771,7 +12907,7 @@ Cancel = Abort`
           <tr>
             <td>
               <div class='cap-user'>
-                <strong>${user.user_name}</strong>
+                ${userNameHtml}
                 <div class='cap-meta'>${user.primary_role}</div>
                 <div class='cap-meta'>Forecast ${Number(user.totals.forecast_hours || 0).toFixed(1)}h · Cap ${Number(user.totals.capacity_hours || 0).toFixed(1)}h</div>
               </div>
@@ -12779,7 +12915,7 @@ Cancel = Abort`
             ${rowCells}
           </tr>
         `;
-        return `${summaryRow}${renderCapacityPillLane(user)}`;
+        return summaryRow;
       }).join('');
       const emptyColSpan = capacityColumns.length + 1;
       const fallbackRow = `<tr><td class='sub' colspan='${emptyColSpan}'>No capacity rows in this window.</td></tr>`;
@@ -13195,14 +13331,63 @@ Cancel = Abort`
       renderDeliverableHistory().catch(err => log('History render failed', String(err)));
     }
 
-    async function getDemoUsers() {
-      const u = await api('/api/demo/users');
-      const required = ['am', 'ops', 'cm', 'cc', 'sales'];
-      const missing = required.filter(k => !u[k]);
-      if (missing.length > 0) {
-        throw new Error('Missing seeded demo users. Run PYTHONPATH=. python scripts/init_db.py');
+    function matchesUserRole(user, role) {
+      return effectiveRoleForUser(user) === role;
+    }
+
+    function matchesUserTeam(user, team) {
+      return String(user?.primary_team || '').toLowerCase() === String(team || '').toLowerCase();
+    }
+
+    function matchesUserSeniority(user, level) {
+      return String(user?.seniority || '').toLowerCase() === String(level || '').toLowerCase();
+    }
+
+    function selectPreferredUser(candidates) {
+      if (!Array.isArray(candidates) || !candidates.length) return null;
+      const activeId = String(currentActorId || '').trim();
+      if (activeId) {
+        const exact = candidates.find(user => String(user?.id || '') === activeId);
+        if (exact) return exact;
       }
-      return u;
+      return candidates[0];
+    }
+
+    async function getDemoUsers() {
+      if (!Array.isArray(usersDirectory) || usersDirectory.length === 0) {
+        await loadUsersDirectory();
+      }
+      const users = Array.isArray(usersDirectory) ? usersDirectory : [];
+      const byRole = role => users.filter(user => matchesUserRole(user, role));
+      const byTeam = team => users.filter(user => matchesUserTeam(user, team));
+      const byTeamAndSeniority = (team, seniority) => users.filter(
+        user => matchesUserTeam(user, team) && matchesUserSeniority(user, seniority),
+      );
+
+      const amUser = selectPreferredUser(byRole('am')) || selectPreferredUser(byTeam('sales'));
+      const cmUser = selectPreferredUser(byRole('cm')) || selectPreferredUser(byTeam('client_services'));
+      const ccUser = selectPreferredUser(byRole('cc')) || selectPreferredUser(byTeam('editorial'));
+      const salesLead = selectPreferredUser(byRole('head_sales')) || selectPreferredUser(byTeamAndSeniority('sales', 'leadership'));
+      const opsLead = selectPreferredUser(byRole('head_ops'))
+        || selectPreferredUser(byRole('admin'))
+        || selectPreferredUser(byRole('cm'))
+        || selectPreferredUser(byTeamAndSeniority('client_services', 'leadership'))
+        || selectPreferredUser(byTeam('client_services'));
+
+      const resolved = {
+        am: amUser?.id || null,
+        ops: opsLead?.id || null,
+        cm: cmUser?.id || null,
+        cc: ccUser?.id || null,
+        sales: salesLead?.id || amUser?.id || null,
+      };
+
+      const required = ['am', 'ops', 'cm', 'cc', 'sales'];
+      const missing = required.filter(key => !resolved[key]);
+      if (missing.length > 0) {
+        throw new Error(`Unable to infer demo actors from active users: missing ${missing.join(', ')}`);
+      }
+      return resolved;
     }
 
     function buildDealPayload() {

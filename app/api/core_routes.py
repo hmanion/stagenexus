@@ -1744,9 +1744,9 @@ def capacity_matrix(
     users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
     if actor_user_id:
         actor = AuthzService(db).actor(actor_user_id)
-        scope_mode = str(team_scope or "auto").strip().lower()
-        restrict_to_managed_team = actor.seniority == SeniorityLevel.MANAGER or (
-            actor.seniority == SeniorityLevel.LEADERSHIP and scope_mode == "managed"
+        restrict_to_managed_team = (
+            actor.seniority == SeniorityLevel.MANAGER
+            and actor.app_role != AppAccessRole.SUPERADMIN
         )
         if restrict_to_managed_team:
             actor_team_key = TeamInferenceService.canonical_team_key(
