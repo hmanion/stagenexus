@@ -20,6 +20,8 @@ app = FastAPI(title="Today Digital Campaign Operations")
 
 @app.on_event("startup")
 def startup() -> None:
+    # Transitional compatibility path: baseline environments still rely on create_all
+    # + runtime schema updates while Alembic rollout completes.
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema(engine)
     assert_sqlite_foreign_keys_enabled(engine)

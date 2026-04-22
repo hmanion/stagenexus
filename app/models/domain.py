@@ -364,6 +364,8 @@ class CampaignAssignment(Base, TimestampMixin):
 
 
 class Sprint(Base, TimestampMixin):
+    # Transitional compatibility table retained for migration-window safety.
+    # Canonical sprint identity lives on Campaign fields.
     __tablename__ = "sprints"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -381,6 +383,7 @@ class ProductModule(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     campaign_id: Mapped[str | None] = mapped_column(ForeignKey("campaigns.id"))
+    # Transitional compatibility link. campaign_id is canonical parent.
     sprint_id: Mapped[str | None] = mapped_column(ForeignKey("sprints.id"))
     module_name: Mapped[str] = mapped_column(String(32), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -392,6 +395,7 @@ class Deliverable(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     display_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     campaign_id: Mapped[str | None] = mapped_column(ForeignKey("campaigns.id"))
+    # Transitional compatibility link. campaign_id is canonical parent.
     sprint_id: Mapped[str | None] = mapped_column(ForeignKey("sprints.id"))
     publication_id: Mapped[str] = mapped_column(ForeignKey("publications.id"), nullable=False)
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
@@ -438,6 +442,7 @@ class WorkflowStep(Base, TimestampMixin):
     linked_deliverable_id: Mapped[str | None] = mapped_column(ForeignKey("deliverables.id"))
     # Compatibility alias during migration window: legacy column still used by older code paths.
     deliverable_id: Mapped[str | None] = mapped_column(ForeignKey("deliverables.id"))
+    # Transitional compatibility link. campaign/stage are canonical ownership hierarchy.
     sprint_id: Mapped[str | None] = mapped_column(ForeignKey("sprints.id"))
     stage_name: Mapped[str | None] = mapped_column(String(32))
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -607,6 +612,7 @@ class Milestone(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     display_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     campaign_id: Mapped[str | None] = mapped_column(ForeignKey("campaigns.id"))
+    # Transitional compatibility link. campaign_id + stage_id are canonical.
     sprint_id: Mapped[str | None] = mapped_column(ForeignKey("sprints.id"))
     stage_id: Mapped[str | None] = mapped_column(ForeignKey("stages.id"))
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))

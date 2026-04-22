@@ -42,6 +42,98 @@ class MilestoneServiceRuleTests(unittest.TestCase):
         self.assertIs(refreshed, milestone)
         self.assertEqual(refreshed.sla_health, MilestoneSlaHealth.MET)
 
+    def _milestone(
+        self,
+        *,
+        milestone_id: str,
+        display_id: str,
+        offset: int | str | None,
+        due_date: date | None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=milestone_id,
+            display_id=display_id,
+            offset_days_from_campaign_start=offset,
+            due_date=due_date,
+            current_target_date=due_date,
+            baseline_date=due_date,
+            completion_date=None,
+            achieved_at=None,
+            sla_health=MilestoneSlaHealth.NOT_DUE,
+            sla_health_manual_override=False,
+        )
+
+    def test_reanchor_campaign_milestones_valid_offsets(self) -> None:
+        campaign = SimpleNamespace(id="campaign-1", planned_start_date=date(2026, 1, 5))
+        milestones = [
+            self._milestone(milestone_id="m-1", display_id="MS-1", offset=1, due_date=date(2026, 1, 6)),
+            self._milestone(milestone_id="m-2", display_id="MS-2", offset=3, due_date=date(2026, 1, 8)),
+        ]
+        self.db.scalars.return_value.all.return_value = milestones
+
+        result = self.service.reanchor_campaign_milestones(campaign)
+
+        self.assertEqual(result.moved, 2)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(milestones[0].due_date, date(2026, 1, 6))
+        self.assertEqual(milestones[1].due_date, date(2026, 1, 8))
+
+    def test_reanchor_campaign_milestones_invalid_offset_uses_fallback_due_date(self) -> None:
+        campaign = SimpleNamespace(id="campaign-1", planned_start_date=date(2026, 1, 5))
+        milestone = self._milestone(
+            milestone_id="m-1",
+            display_id="MS-1",
+            offset="bad-offset",
+            due_date=date(2026, 1, 9),
+        )
+        self.db.scalars.return_value.all.return_value = [milestone]
+
+        result = self.service.reanchor_campaign_milestones(campaign)
+
+        self.assertEqual(result.moved, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(milestone.offset_days_from_campaign_start, 4)
+        self.assertEqual(milestone.due_date, date(2026, 1, 12))
+
+    def test_reanchor_campaign_milestones_out_of_range_offset_is_skipped(self) -> None:
+        campaign = SimpleNamespace(id="campaign-1", planned_start_date=date(2026, 1, 5))
+        milestone = self._milestone(
+            milestone_id="m-1",
+            display_id="MS-1",
+            offset=10**9,
+            due_date=date(2026, 1, 6),
+        )
+        original_due = milestone.due_date
+        self.db.scalars.return_value.all.return_value = [milestone]
+
+        result = self.service.reanchor_campaign_milestones(campaign)
+
+        self.assertEqual(result.moved, 0)
+        self.assertEqual(result.skipped, 1)
+        self.assertEqual(len(result.warnings), 1)
+        self.assertEqual(result.warnings[0].reason, "offset_out_of_range")
+        self.assertEqual(milestone.due_date, original_due)
+
+    def test_reanchor_campaign_milestones_missing_offset_backfills_from_due(self) -> None:
+        campaign = SimpleNamespace(id="campaign-1", planned_start_date=date(2026, 1, 5))
+        milestone = self._milestone(
+            milestone_id="m-1",
+            display_id="MS-1",
+            offset=None,
+            due_date=date(2026, 1, 7),
+        )
+        self.db.scalars.return_value.all.return_value = [milestone]
+
+        result = self.service.reanchor_campaign_milestones(campaign)
+
+        self.assertEqual(result.moved, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(milestone.offset_days_from_campaign_start, 2)
+        self.assertEqual(milestone.due_date, date(2026, 1, 7))
+
 
 class DeliverableDerivationRuleTests(unittest.TestCase):
     def test_assign_sequence_and_title_resets_per_type_within_campaign(self) -> None:

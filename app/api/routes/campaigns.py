@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any
 
@@ -65,6 +66,7 @@ from app.schemas.milestones import (
     MilestoneUpdateIn,
 )
 from app.services.authz_service import AuthzService
+from app.services.calendar_service import build_default_working_calendar
 from app.services.campaign_health_service import CampaignHealthService
 from app.services.deliverable_derivation_service import DeliverableDerivationService
 from app.services.deliverable_workflow_service import DeliverableWorkflowService
@@ -99,6 +101,7 @@ from app.api.core_routes import (
 )
 
 router = APIRouter(prefix="/api", tags=["campaign-ops"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/campaigns/health")
@@ -1119,7 +1122,23 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
     if campaign.planned_start_date and campaign.planned_end_date and campaign.planned_end_date < campaign.planned_start_date:
         campaign.planned_end_date = campaign.planned_start_date
 
-    milestones_reanchored = MilestoneService(db).reanchor_campaign_milestones(campaign)
+    reanchor_result = MilestoneService(db).reanchor_campaign_milestones(campaign)
+    warning_payload = [
+        {
+            "milestone_id": warning.milestone_id,
+            "milestone_display_id": warning.milestone_display_id,
+            "reason": warning.reason,
+        }
+        for warning in reanchor_result.warnings
+    ]
+    for warning in warning_payload:
+        logger.warning(
+            "campaign_dates_reanchor_skipped campaign_id=%s milestone_id=%s milestone_display_id=%s reason=%s",
+            campaign.display_id,
+            warning["milestone_id"],
+            warning["milestone_display_id"],
+            warning["reason"],
+        )
 
     db.add(
         ActivityLog(
@@ -1134,6 +1153,9 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
                 "old_end": old_end.isoformat() if old_end else None,
                 "new_start": campaign.planned_start_date.isoformat() if campaign.planned_start_date else None,
                 "new_end": campaign.planned_end_date.isoformat() if campaign.planned_end_date else None,
+                "milestones_reanchored": reanchor_result.moved,
+                "milestones_skipped": reanchor_result.skipped,
+                "milestone_warnings": warning_payload,
             },
         )
     )
@@ -1142,7 +1164,9 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
         "campaign_id": campaign.display_id,
         "planned_start_date": campaign.planned_start_date.isoformat() if campaign.planned_start_date else None,
         "planned_end_date": campaign.planned_end_date.isoformat() if campaign.planned_end_date else None,
-        "milestones_reanchored": milestones_reanchored,
+        "milestones_reanchored": reanchor_result.moved,
+        "milestones_skipped": reanchor_result.skipped,
+        "milestone_warnings": warning_payload,
     }
 
 

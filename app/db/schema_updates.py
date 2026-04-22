@@ -5,7 +5,13 @@ from sqlalchemy.engine import Engine
 
 
 def ensure_runtime_schema(engine: Engine) -> None:
-    """Apply additive column updates for existing databases without a migration tool."""
+    """
+    Transitional compatibility shim for pre-Alembic databases.
+
+    This function remains intentionally for migration-window safety while environments
+    are upgraded onto formal Alembic revisions. New schema evolution should be authored
+    via Alembic migrations, not by extending this runtime patch path.
+    """
     additions = {
         "users": [
             ("primary_team", "VARCHAR(32) NOT NULL DEFAULT 'CLIENT_SERVICES'"),

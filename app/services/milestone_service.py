@@ -25,6 +25,20 @@ class MilestoneSlaEvaluation:
     reason: str
 
 
+@dataclass(frozen=True)
+class MilestoneReanchorWarning:
+    milestone_id: str
+    milestone_display_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class MilestoneReanchorResult:
+    moved: int
+    skipped: int
+    warnings: list[MilestoneReanchorWarning]
+
+
 class MilestoneService:
     def __init__(self, db: Session):
         self.db = db
@@ -78,27 +92,75 @@ class MilestoneService:
         milestone.sla_health_overridden_at = None
         return self.refresh_sla(milestone)
 
-    def reanchor_campaign_milestones(self, campaign: Campaign) -> int:
+    def _fallback_offset_days(self, milestone: Milestone, campaign_start: date) -> int | None:
+        due = milestone.due_date or milestone.current_target_date or milestone.baseline_date
+        if due is None:
+            return None
+        return int((due - campaign_start).days)
+
+    def _safe_offset_days(self, milestone: Milestone, campaign_start: date) -> int | None:
+        raw_offset = milestone.offset_days_from_campaign_start
+        if raw_offset is None:
+            derived = self._fallback_offset_days(milestone, campaign_start)
+            if derived is not None:
+                milestone.offset_days_from_campaign_start = derived
+            return derived
+
+        if isinstance(raw_offset, bool):
+            derived = self._fallback_offset_days(milestone, campaign_start)
+            if derived is not None:
+                milestone.offset_days_from_campaign_start = derived
+            return derived
+
+        try:
+            offset_days = int(raw_offset)
+        except (TypeError, ValueError):
+            derived = self._fallback_offset_days(milestone, campaign_start)
+            if derived is not None:
+                milestone.offset_days_from_campaign_start = derived
+            return derived
+
+        if raw_offset != offset_days:
+            milestone.offset_days_from_campaign_start = offset_days
+        return offset_days
+
+    def reanchor_campaign_milestones(self, campaign: Campaign) -> MilestoneReanchorResult:
         if not campaign.planned_start_date:
-            return 0
+            return MilestoneReanchorResult(moved=0, skipped=0, warnings=[])
         milestones = self.db.scalars(select(Milestone).where(Milestone.campaign_id == campaign.id)).all()
         moved = 0
+        warnings: list[MilestoneReanchorWarning] = []
+        start_ordinal = campaign.planned_start_date.toordinal()
+        min_ordinal = date.min.toordinal()
+        max_ordinal = date.max.toordinal()
         for milestone in milestones:
-            if milestone.offset_days_from_campaign_start is None:
-                due = milestone.due_date or milestone.current_target_date or milestone.baseline_date
-                if due:
-                    milestone.offset_days_from_campaign_start = (due - campaign.planned_start_date).days
-            if milestone.offset_days_from_campaign_start is None:
+            offset_days = self._safe_offset_days(milestone, campaign.planned_start_date)
+            if offset_days is None:
+                warnings.append(
+                    MilestoneReanchorWarning(
+                        milestone_id=str(milestone.id),
+                        milestone_display_id=str(milestone.display_id or ""),
+                        reason="offset_missing_or_invalid_and_no_fallback_anchor",
+                    )
+                )
                 continue
-            new_due = campaign.planned_start_date.fromordinal(
-                campaign.planned_start_date.toordinal() + int(milestone.offset_days_from_campaign_start)
-            )
+            target_ordinal = start_ordinal + offset_days
+            if target_ordinal < min_ordinal or target_ordinal > max_ordinal:
+                warnings.append(
+                    MilestoneReanchorWarning(
+                        milestone_id=str(milestone.id),
+                        milestone_display_id=str(milestone.display_id or ""),
+                        reason="offset_out_of_range",
+                    )
+                )
+                continue
+            new_due = date.fromordinal(target_ordinal)
             # Milestones still respect working-day constraints.
             milestone.due_date = self.calendar.next_working_day_on_or_after(new_due)
             milestone.current_target_date = milestone.due_date
             self.refresh_sla(milestone)
             moved += 1
-        return moved
+        return MilestoneReanchorResult(moved=moved, skipped=len(warnings), warnings=warnings)
 
     def ensure_stage_links_for_campaign(self, campaign_id: str) -> int:
         milestones = self.db.scalars(select(Milestone).where(Milestone.campaign_id == campaign_id)).all()
