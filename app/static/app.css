@@ -380,7 +380,7 @@ body.screen-capacity #sectionCapacity .capacity-wrap {
 .panel-details-grid,
 .object-panel-children-list {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 .panel-details-row {
   display: grid;
@@ -388,6 +388,7 @@ body.screen-capacity #sectionCapacity .capacity-wrap {
   align-items: center;
   column-gap: 10px;
   min-width: 0;
+  margin: 2px 0;
 }
 .panel-details-label {
   color: var(--ink-2);
@@ -971,7 +972,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 22px;
+  /* min-width: 22px; */
   height: 20px;
   padding: 0 6px;
   border-radius: 4px;
@@ -1522,8 +1523,7 @@ button.gantt-bar {
   line-height: 1;
   display: inline-flex;
   align-items: center;
-  margin-left: 6px;
-  padding-left: 6px;
+  padding-left: 4px;
   border-left: 1px solid currentColor;
   opacity: 0.72;
   pointer-events: none;
@@ -1534,12 +1534,12 @@ button.gantt-bar {
 .tag.has-dropdown-caret {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 4px;
 }
 .user-pill.has-dropdown-caret {
   display: inline-flex;
   align-items: center;
-  gap: 0;
+  gap: 4px;
 }
 .pill-dropdown-menu {
   position: absolute;
@@ -1857,7 +1857,7 @@ button.gantt-bar {
   grid-template-columns: minmax(320px, 1.45fr) minmax(360px, 1.2fr) minmax(230px, 0.9fr);
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 4px 8px;
   border: 0.5px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
@@ -2054,7 +2054,7 @@ button {
   padding: 7px 14px;
   cursor: pointer;
   font-weight: 600;
-  min-height: 34px;
+  min-height: 1rem;
   font-size: 12px;
   letter-spacing: 0.01em;
   transition: transform 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
