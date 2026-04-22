@@ -1,0 +1,546 @@
+    <section class='card' id='sectionControls'>
+      <div class='section-head'>
+        <h3>Screen Options</h3>
+        <span class='muted'>Quick filters</span>
+      </div>
+      <div class='toolbar'>
+        <label class='sub' for='qCampaigns'>Campaigns</label>
+        <select id='qCampaigns' aria-label='Filter campaigns' onchange='refreshAll()'>
+          <option value='all'>All campaigns</option>
+          <option value='not_started'>Not started</option>
+          <option value='in_progress'>In Progress</option>
+          <option value='on_hold'>On Hold</option>
+          <option value='blocked_client'>Blocked: Client</option>
+          <option value='blocked_internal'>Blocked: Internal</option>
+          <option value='blocked_dependency'>Blocked: Dependency</option>
+          <option value='done'>Done</option>
+          <option value='cancelled'>Cancelled</option>
+        </select>
+        <label class='sub' for='qProducts'>Products</label>
+        <select id='qProducts' aria-label='Filter products' onchange='refreshAll()'>
+          <option value='all'>All products</option>
+          <option value='demand'>Demand</option>
+          <option value='amplify'>Amplify</option>
+          <option value='response'>Response</option>
+          <option value='display_only'>Display</option>
+        </select>
+        <label class='sub' for='qScopeHealth'>Scope health</label>
+        <select id='qScopeHealth' aria-label='Filter scope health' onchange='refreshAll()'>
+          <option value='all'>All scope health</option>
+          <option value='on_track'>On Track</option>
+          <option value='at_risk'>At Risk</option>
+          <option value='off_track'>Off Track</option>
+          <option value='not_started'>Not due</option>
+        </select>
+        <label class='sub' for='qCampaignHealth'>Campaign health</label>
+        <select id='qCampaignHealth' aria-label='Filter campaign health' onchange='refreshAll()'>
+          <option value='all'>All campaign health</option>
+          <option value='on_track'>On Track</option>
+          <option value='at_risk'>At Risk</option>
+          <option value='off_track'>Off Track</option>
+          <option value='not_started'>Not due</option>
+        </select>
+        <label class='sub' for='qUsersButton'>Users</label>
+        <div id='qUsersDropdown' class='multi-filter-dropdown'>
+          <button id='qUsersButton' type='button' class='ghost' aria-haspopup='true' aria-expanded='false' onclick='toggleUsersDropdown(event)'>All users</button>
+          <div id='qUsersMenu' class='multi-filter-menu hidden' role='menu' aria-label='Filter by users'></div>
+        </div>
+        <select id='qUsers' aria-label='Filter by users' multiple class='hidden' onchange='refreshAll()'></select>
+        <label class='sub' for='qUsersLogic'>Users logic</label>
+        <select id='qUsersLogic' aria-label='User filter logic' onchange='refreshAll()'>
+          <option value='or'>OR</option>
+          <option value='and'>AND</option>
+        </select>
+      </div>
+    </section>
+
+    <section class='grid' id='kpis' aria-live='polite'></section>
+
+    <section class='card hidden' id='sectionNotAllowed'>
+      <h3>Not Available For This Role</h3>
+      <p class='sub'>This screen is currently restricted for your selected role mode.</p>
+    </section>
+
+    <section class='card' id='sectionMyWork'>
+      <div class='section-head'>
+        <h3>My Work</h3>
+        <span id='myWorkSummary' class='muted' aria-live='polite'></span>
+      </div>
+      <div class='toolbar' style='margin-bottom:8px;'>
+        <label class='sub' for='myWorkMode'>Mode</label>
+        <select id='myWorkMode' onchange='renderMyWork(currentRole, currentActorId)'>
+          <option value='owned_only'>Owned only</option>
+          <option value='owned_and_participant'>Owned + participant</option>
+        </select>
+      </div>
+      <div class='queue-list' id='myWorkGrid'></div>
+    </section>
+
+    <section class='card' id='sectionActions'>
+      <div class='section-head'>
+        <h3>New Scope Intake</h3>
+        <span class='muted'>Capture and submit commercial intake</span>
+      </div>
+      <details class='ops-accordion surface-2'>
+        <summary>Scope Form</summary>
+        <article>
+          <p class='sub'>Capture commercial details and submit to Ops for triage.</p>
+          <form id='dealForm' onsubmit='submitNewDeal(event)'>
+            <div class='form-grid'>
+              <div class='field'>
+                <label for='dealClientName'>Client</label>
+                <input id='dealClientName' required placeholder='Client name' />
+              </div>
+              <div class='field'>
+                <label for='dealPublication'>Brand / Publication</label>
+                <select id='dealPublication' required></select>
+              </div>
+              <div class='field full'>
+                <label>Product Lines</label>
+                <div class='line-list' id='productLines'></div>
+                <div class='actions'>
+                  <button type='button' onclick='addProductLine()'>Add Product Line</button>
+                </div>
+              </div>
+              <div class='field'>
+                <label for='dealSowStart'>SOW Start</label>
+                <input id='dealSowStart' type='date' required onchange='recomputeDealEndDate()' />
+              </div>
+              <div class='field'>
+                <label for='dealSowEnd'>SOW End</label>
+                <input id='dealSowEnd' type='date' required />
+              </div>
+              <div class='field full'>
+                <label for='dealICP'>ICP</label>
+                <textarea id='dealICP' required placeholder='Ideal customer profile'></textarea>
+              </div>
+              <div class='field full'>
+                <label for='dealObjective'>Campaign Objective</label>
+                <textarea id='dealObjective' required placeholder='Primary objective'></textarea>
+              </div>
+              <div class='field full'>
+                <label for='dealMessaging'>Messaging / Positioning</label>
+                <textarea id='dealMessaging' required placeholder='Core narrative and positioning'></textarea>
+              </div>
+              <div class='field'>
+                <label for='contactName'>Client Contact Name</label>
+                <input id='contactName' placeholder='Primary contact' />
+              </div>
+              <div class='field'>
+                <label for='contactEmail'>Client Contact Email</label>
+                <input id='contactEmail' type='email' placeholder='contact@example.com' />
+              </div>
+              <div class='field full'>
+                <label for='dealAttachment'>SOW Attachment (metadata for now)</label>
+                <input id='dealAttachment' placeholder='SOW.pdf' />
+              </div>
+            </div>
+            <div class='actions'>
+              <button class='primary' data-control='create_deal' type='submit'>Create Scope</button>
+              <button type='button' data-control='create_submit_deal' onclick='submitAndRouteLatestDeal()'>Create Scope + Submit to Ops</button>
+            </div>
+          </form>
+        </article>
+      </details>
+    </section>
+
+    <section class='card' id='sectionDeals'>
+      <div class='section-head'>
+        <h3>Scopes</h3>
+        <span id='dealsCount' class='muted'></span>
+      </div>
+      <div id='dealsBody' class='queue-list'></div>
+    </section>
+
+    <section class='card' id='sectionPeople'>
+      <div class='section-head'>
+        <h3>People</h3>
+        <span id='peopleCount' class='muted'></span>
+      </div>
+      <div class='toolbar'>
+        <label class='sub' for='qPeopleTeam'>Team</label>
+        <select id='qPeopleTeam' aria-label='Filter people by team' onchange='renderPeople()'>
+          <option value='all'>All teams</option>
+          <option value='sales'>Sales</option>
+          <option value='editorial'>Editorial</option>
+          <option value='marketing'>Marketing</option>
+          <option value='client_services'>Client Services</option>
+        </select>
+        <label class='sub' for='qPeopleSeniority'>Seniority</label>
+        <select id='qPeopleSeniority' aria-label='Filter people by seniority' onchange='renderPeople()'>
+          <option value='all'>All seniority</option>
+          <option value='standard'>Standard</option>
+          <option value='manager'>Manager</option>
+          <option value='leadership'>Leadership</option>
+        </select>
+        <label class='sub' for='qPeopleAppRole'>App Role</label>
+        <select id='qPeopleAppRole' aria-label='Filter people by app role' onchange='renderPeople()'>
+          <option value='all'>All app roles</option>
+          <option value='user'>User</option>
+          <option value='admin'>Admin</option>
+          <option value='superadmin'>Superadmin</option>
+        </select>
+      </div>
+      <div id='peopleBody' class='queue-list' style='margin-top:8px;'></div>
+    </section>
+
+    <section class='card' id='sectionCampaigns'>
+      <div class='section-head'>
+        <h3>Campaigns</h3>
+        <span id='campaignsCount' class='muted'></span>
+      </div>
+      <div id='campaignsBody' class='queue-list'></div>
+    </section>
+
+    <section class='card' id='sectionGantt'>
+      <div class='section-head'>
+        <h3>Gantt</h3>
+        <span id='ganttMeta' class='muted'>Select a campaign to view timeline</span>
+      </div>
+      <div class='toolbar'>
+        <label class='sub' for='ganttCampaignSelect'>Campaign</label>
+        <select id='ganttCampaignSelect' onchange='onGanttCampaignChange()'></select>
+        <span class='sub'>Show</span>
+        <div id='ganttKinds' class='gantt-kind-ticks'>
+          <label><input type='checkbox' value='campaign' checked onchange='onGanttKindsChange()' /> Campaigns</label>
+          <label><input type='checkbox' value='milestone' checked onchange='onGanttKindsChange()' /> Milestones</label>
+          <label><input type='checkbox' value='stage' checked onchange='onGanttKindsChange()' /> Stages</label>
+          <label><input type='checkbox' value='step' checked onchange='onGanttKindsChange()' /> Steps</label>
+        </div>
+        <button id='ganttMonthBtn' class='primary' onclick='setGanttView("month")'>Month</button>
+        <button id='ganttWeekBtn' onclick='setGanttView("week")'>Week</button>
+      </div>
+      <div id='ganttBody' class='gantt-wrap' style='margin-top:10px;'>
+        <div class='sub' style='padding:12px;'>No campaign selected.</div>
+      </div>
+    </section>
+
+    <section class='card' id='sectionReviews'>
+      <div class='section-head'>
+        <h3>Reviews Queue</h3>
+        <span id='reviewsSummary' class='muted'></span>
+      </div>
+      <table>
+        <thead><tr><th>Queue</th><th>Step</th><th>Deliverable</th><th>Campaign</th><th>Due</th><th>Open</th></tr></thead>
+        <tbody id='reviewsQueueBody'></tbody>
+      </table>
+    </section>
+
+    <section class='card' id='sectionDeliverables'>
+      <div class='section-head'>
+        <h3>Deliverables</h3>
+        <span id='deliverablesCount' class='muted'></span>
+      </div>
+      <div id='deliverablesBody' class='queue-list'></div>
+    </section>
+
+    <section class='card' id='sectionSteps'>
+      <div class='section-head'>
+        <h3>Workflow Steps</h3>
+        <span id='stepsCount' class='muted'></span>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>Owner Role</th><th>Due</th><th>Done</th><th>ID</th></tr></thead>
+        <tbody id='stepsBody'></tbody>
+      </table>
+    </section>
+
+    <section class='card' id='sectionOpsDefaults'>
+      <div class='section-head'>
+        <h3>Ops Default Variables</h3>
+        <span class='muted'>Head of Ops controls for workload (hours), capacity (hours/week), and turnaround times (days)</span>
+      </div>
+      <form id='opsDefaultsForm' onsubmit='saveOpsDefaults(event)'>
+        <details class='ops-accordion surface-2'>
+          <summary>Content Workload Defaults (hours)</summary>
+          <div class='form-grid' style='padding:8px 10px;'>
+            <div class='field'>
+              <label for='opsWorkKoPrep'>KO/Planning Prep (hours)</label>
+              <input id='opsWorkKoPrep' type='number' step='0.5' min='0' max='24' required />
+            </div>
+            <div class='field'>
+              <label for='opsWorkContentPlan'>Content Plan Creation (hours)</label>
+              <input id='opsWorkContentPlan' type='number' step='0.5' min='0' max='24' required />
+            </div>
+            <div class='field'>
+              <label for='opsWorkInterview'>Interview Participation (hours)</label>
+              <input id='opsWorkInterview' type='number' step='0.5' min='0' max='24' required />
+            </div>
+            <div class='field'>
+              <label for='opsWorkArticle'>Article Drafting (hours)</label>
+              <input id='opsWorkArticle' type='number' step='0.5' min='0' max='24' required />
+            </div>
+            <div class='field'>
+              <label for='opsWorkVideoBrief'>Video Brief (hours)</label>
+              <input id='opsWorkVideoBrief' type='number' step='0.5' min='0' max='24' required />
+            </div>
+            <div class='field'>
+              <label for='opsWorkAmends'>Amends Reserve (hours)</label>
+              <input id='opsWorkAmends' type='number' step='0.5' min='0' max='24' required />
+            </div>
+          </div>
+        </details>
+        <details class='ops-accordion surface-2' style='margin-top:8px;'>
+          <summary>Role Capacity Defaults (hours/week)</summary>
+          <div class='form-grid' style='padding:8px 10px;'>
+            <div class='field'>
+              <label for='opsCapAm'>AM Capacity (hours/week)</label>
+              <input id='opsCapAm' type='number' step='0.5' min='1' max='80' required />
+            </div>
+            <div class='field'>
+              <label for='opsCapCm'>CM Capacity (hours/week)</label>
+              <input id='opsCapCm' type='number' step='0.5' min='1' max='80' required />
+            </div>
+            <div class='field'>
+              <label for='opsCapCc'>CC Capacity (hours/week)</label>
+              <input id='opsCapCc' type='number' step='0.5' min='1' max='80' required />
+            </div>
+            <div class='field'>
+              <label for='opsCapDn'>DN Capacity (hours/week)</label>
+              <input id='opsCapDn' type='number' step='0.5' min='1' max='80' required />
+            </div>
+            <div class='field'>
+              <label for='opsCapMm'>MM Capacity (hours/week)</label>
+              <input id='opsCapMm' type='number' step='0.5' min='1' max='80' required />
+            </div>
+          </div>
+        </details>
+        <details class='ops-accordion surface-2' style='margin-top:8px;'>
+          <summary>Timeline Turnaround Defaults (days)</summary>
+          <div class='form-grid' style='padding:8px 10px;'>
+            <div class='field'>
+              <label for='opsTimelineInterviewWeeks'>Interview Week Offset (after KO)</label>
+              <input id='opsTimelineInterviewWeeks' type='number' min='1' max='8' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelineWriting'>Writing Turnaround (working days)</label>
+              <input id='opsTimelineWriting' type='number' min='1' max='40' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelineInternalReview'>Internal Review Turnaround (working days)</label>
+              <input id='opsTimelineInternalReview' type='number' min='1' max='20' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelineClientReview'>Client Review Turnaround (working days)</label>
+              <input id='opsTimelineClientReview' type='number' min='1' max='30' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelinePublish'>Publish Turnaround After Client Review (working days)</label>
+              <input id='opsTimelinePublish' type='number' min='0' max='10' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelinePromotion'>Promotion Turnaround (calendar days)</label>
+              <input id='opsTimelinePromotion' type='number' min='1' max='120' required />
+            </div>
+            <div class='field'>
+              <label for='opsTimelineReporting'>Reporting Turnaround (calendar days)</label>
+              <input id='opsTimelineReporting' type='number' min='1' max='60' required />
+            </div>
+          </div>
+        </details>
+        <details class='ops-accordion surface-2' style='margin-top:8px;'>
+          <summary>Health Buffer Thresholds (working days)</summary>
+          <div class='form-grid' style='padding:8px 10px;'>
+            <div class='field'>
+              <label for='opsHealthStepDefault'>Step Buffer Default</label>
+              <input id='opsHealthStepDefault' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthDeliverablePlanning'>Deliverable Planning Buffer</label>
+              <input id='opsHealthDeliverablePlanning' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthDeliverableProduction'>Deliverable Production Buffer</label>
+              <input id='opsHealthDeliverableProduction' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthDeliverablePromotion'>Deliverable Promotion Buffer</label>
+              <input id='opsHealthDeliverablePromotion' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthDeliverableReporting'>Deliverable Reporting Buffer</label>
+              <input id='opsHealthDeliverableReporting' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthCampaignDefault'>Campaign Buffer Default</label>
+              <input id='opsHealthCampaignDefault' type='number' min='0' max='90' required />
+            </div>
+            <div class='field'>
+              <label for='opsHealthScopeDefault'>Scope Buffer Default</label>
+              <input id='opsHealthScopeDefault' type='number' min='0' max='90' required />
+            </div>
+          </div>
+        </details>
+        <details class='ops-accordion surface-2' style='margin-top:8px;'>
+          <summary>Progress Segment Order</summary>
+          <div class='form-grid' style='padding:8px 10px;'>
+            <div class='field'><label for='opsProgressOrder1'>Position 1</label><select id='opsProgressOrder1'></select></div>
+            <div class='field'><label for='opsProgressOrder2'>Position 2</label><select id='opsProgressOrder2'></select></div>
+            <div class='field'><label for='opsProgressOrder3'>Position 3</label><select id='opsProgressOrder3'></select></div>
+            <div class='field'><label for='opsProgressOrder4'>Position 4</label><select id='opsProgressOrder4'></select></div>
+            <div class='field'><label for='opsProgressOrder5'>Position 5</label><select id='opsProgressOrder5'></select></div>
+            <div class='field'><label for='opsProgressOrder6'>Position 6</label><select id='opsProgressOrder6'></select></div>
+            <div class='field'><label for='opsProgressOrder7'>Position 7</label><select id='opsProgressOrder7'></select></div>
+            <div class='field'><label for='opsProgressOrder8'>Position 8</label><select id='opsProgressOrder8'></select></div>
+          </div>
+        </details>
+        <div class='actions'>
+          <button class='primary' type='submit'>Save Defaults</button>
+        </div>
+      </form>
+    </section>
+
+    <section class='card' id='sectionRolePermissions'>
+      <div class='section-head'>
+        <h3>Role Permissions</h3>
+        <span id='rolePermissionsMeta' class='muted'>Head of Ops can configure screen and control permissions.</span>
+      </div>
+      <form id='rolePermissionsForm' onsubmit='saveRolePermissions(event)'>
+        <div id='rolePermissionsBody' class='sub'>Loading role permissions...</div>
+        <div class='actions'>
+          <button class='primary' type='submit'>Save Permissions</button>
+        </div>
+      </form>
+    </section>
+
+    <section class='card' id='sectionCardModules'>
+      <div class='section-head'>
+        <h3>Card Module Visibility</h3>
+        <span id='cardModulesMeta' class='muted'>Superadmin can choose which fields appear on each object card.</span>
+      </div>
+      <form id='cardModulesForm' onsubmit='saveCardModuleSettings(event)'>
+        <div id='cardModulesBody' class='sub'>Loading card module settings...</div>
+        <div class='actions'>
+          <button class='primary' type='submit'>Save Card Settings</button>
+        </div>
+      </form>
+    </section>
+
+    <section class='card' id='sectionListModules'>
+      <div class='section-head'>
+        <h3>List Module Visibility</h3>
+        <span id='listModulesMeta' class='muted'>Superadmin can choose which fields appear in list rows for each object type.</span>
+      </div>
+      <form id='listModulesForm' onsubmit='saveListModuleSettings(event)'>
+        <div id='listModulesBody' class='sub'>Loading list module settings...</div>
+        <div class='actions'>
+          <button class='primary' type='submit'>Save List Settings</button>
+        </div>
+      </form>
+    </section>
+
+    <section class='card' id='sectionAdminUsers'>
+      <div class='section-head'>
+        <h3>User Management</h3>
+        <span id='adminUsersMeta' class='muted'>Add users and assign roles.</span>
+      </div>
+      <form id='adminUserCreateForm' onsubmit='createAdminUser(event)'>
+        <div class='admin-grid'>
+          <div class='field'>
+            <label for='adminUserName'>Full name</label>
+            <input id='adminUserName' type='text' required />
+          </div>
+          <div class='field'>
+            <label for='adminUserEmail'>Email</label>
+            <input id='adminUserEmail' type='email' required />
+          </div>
+          <div class='field'>
+            <label for='adminUserTeam'>Primary team</label>
+            <select id='adminUserTeam'></select>
+          </div>
+          <div class='field'>
+            <label for='adminUserSeniority'>Seniority</label>
+            <select id='adminUserSeniority'></select>
+          </div>
+          <div class='field'>
+            <label for='adminUserAppRole'>App role</label>
+            <select id='adminUserAppRole'></select>
+          </div>
+        </div>
+        <div class='actions'>
+          <button class='primary' type='submit'>Add User</button>
+        </div>
+      </form>
+      <div id='adminUsersBody' class='stack-md' style='margin-top:8px;'></div>
+    </section>
+
+    <section class='card' id='sectionObjectRelationships'>
+      <div class='section-head'>
+        <h3>Object Relationships</h3>
+        <span id='objectRelationshipsMeta' class='muted'>Canonical parent/child map.</span>
+      </div>
+      <div id='objectRelationshipsBody' class='stack-md'></div>
+    </section>
+
+    <section class='card' id='sectionHistory'>
+      <h3 style='margin-top:0;'>Deliverable Audit Trail</h3>
+      <div class='sub' id='historyHeader'>Select a deliverable context by generating campaigns and transitions.</div>
+      <div class='actions'>
+        <label for='historyDeliverableSelect' class='sub'>Deliverable:</label>
+        <select id='historyDeliverableSelect' onchange='onHistorySelectionChange()'></select>
+      </div>
+      <div class='activity-risk-grid' style='margin-top:10px;'>
+        <div>
+          <h4 class='timeline-title'>Activity Timeline</h4>
+          <div id='activityBody' class='activity-list'></div>
+        </div>
+        <div>
+          <h4 class='timeline-title'>Risk Flags</h4>
+          <div id='reviewsBody' class='risk-flag-list'></div>
+        </div>
+      </div>
+    </section>
+
+    <section class='row' id='sectionCapacityRisk'>
+      <article class='card' id='sectionSystemRisks'>
+        <h3>System Risks</h3>
+        <table>
+          <thead><tr><th>Severity</th><th>Code</th><th>Open</th></tr></thead>
+          <tbody id='risksBody'></tbody>
+        </table>
+      </article>
+    </section>
+
+    <section class='card' id='sectionCapacity'>
+      <h3>Capacity Ledger</h3>
+      <div class='capacity-controls'>
+        <button id='capacityWeekBtn' onclick='setCapacityView("day")'>Week</button>
+        <button id='capacityMonthBtn' onclick='setCapacityView("month")' class='primary'>Month (4w)</button>
+        <button id='capacityQuarterBtn' onclick='setCapacityView("quarter")'>Quarter (13w)</button>
+        <button onclick='snapCapacityToToday()'>Today</button>
+        <button onclick='shiftCapacityWindow(-1)'>Prev</button>
+        <button onclick='shiftCapacityWindow(1)'>Next</button>
+        <label class='sub' for='capacityShowItems'>Show assigned items</label>
+        <input id='capacityShowItems' type='checkbox' checked onchange='toggleCapacityItems()' />
+        <span id='capacityRangeLabel' class='sub'></span>
+      </div>
+      <div class='capacity-wrap'>
+        <table class='capacity-matrix' id='capacityMatrixTable'></table>
+        <div id='capacityCellPopover' class='cap-popover hidden'></div>
+      </div>
+      <div id='capacityDetail' class='capacity-detail hidden'></div>
+    </section>
+
+    <section class='card' id='sectionHealthWarnings'>
+      <div class='section-head'>
+        <h3>Capacity & Compression Warnings</h3>
+        <span id='healthWarningsCount' class='muted'></span>
+      </div>
+      <table>
+        <thead><tr><th>Campaign</th><th>Type</th><th>Severity</th><th>Reason</th><th>Owner</th></tr></thead>
+        <tbody id='healthWarningsBody'></tbody>
+      </table>
+    </section>
+
+    <section class='card' id='sectionRiskConsole'>
+      <h3 style='margin-top:0;'>Risk Console</h3>
+      <div class='actions'>
+        <button data-control='create_manual_risk' onclick='createManualRisk()'>Create Manual Risk</button>
+        <button data-control='resolve_manual_risk' onclick='resolveFirstManualRisk()'>Resolve First Manual Risk</button>
+        <button data-control='resolve_escalation' onclick='resolveFirstEscalation()'>Resolve First Escalation</button>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Severity</th><th>Open</th><th>Details</th></tr></thead>
+        <tbody id='manualRisksBody'></tbody>
+      </table>
+    </section>

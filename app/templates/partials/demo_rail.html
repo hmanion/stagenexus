@@ -1,0 +1,41 @@
+    <button id='demoRailToggle' class='demo-rail-toggle hidden' onclick='toggleDemoRail()' aria-label='Show demo rail'>Show Demo Rail</button>
+    <aside id='demoRail' class='demo-rail hidden' aria-label='Demo controls'>
+      <section class='card demo-card'>
+        <div class='section-head'>
+          <h3>Demo Flow</h3>
+          <span class='muted'>Left rail only</span>
+        </div>
+        <div class='actions'>
+          <button data-control='create_demo_deal' onclick='createDemoDeal()'>Create Demo Scope</button>
+          <button data-control='submit_latest_deal' onclick='submitLatestDeal()'>Submit Latest Scope</button>
+          <button data-control='ops_approve_latest_deal' onclick='opsApproveLatestDeal()'>Ops Approve Scope + Readiness</button>
+          <button data-control='generate_latest_campaigns' onclick='generateLatestDealCampaigns()'>Generate Campaigns</button>
+        </div>
+      </section>
+      <section class='card demo-card'>
+        <h3 style='margin-top:0;'>Workflow Demo</h3>
+        <div class='actions'>
+          <button data-control='complete_next_step' onclick='completeNextWorkflowStep()'>Complete Next Step</button>
+          <button data-control='override_step_due' onclick='overrideNextWorkflowStepDue()'>Override Next Step Due</button>
+          <button data-control='advance_deliverable' onclick='advanceFirstDeliverable()'>Advance Deliverable</button>
+          <button data-control='run_ops_job' onclick='runOpsRiskCapacityJob()'>Run Ops Job</button>
+          <button data-control='mark_ready_publish' onclick='markAnyReadyToPublish()'>Mark Ready To Publish</button>
+        </div>
+      </section>
+      <section class='card demo-card'>
+        <h3 style='margin-top:0;'>Demo Governance</h3>
+        <div class='actions'>
+          <button data-control='run_sow_change' onclick='createAndApproveSowChange()'>Run SOW Change</button>
+          <button data-control='request_override' onclick='requestCapacityOverride()'>Request Capacity Override</button>
+          <button data-control='approve_override' onclick='approveCapacityOverride()'>Approve Capacity Override</button>
+          <button data-control='refresh_data' onclick='refreshAll()'>Refresh Data</button>
+        </div>
+      </section>
+      <section class='card demo-card'>
+        <div class='section-head'>
+          <h3 style='margin:0;'>Demo Log</h3>
+          <button id='demoRailMinimiseBtn' class='hidden' onclick='toggleDemoRail()'>Minimise</button>
+        </div>
+        <div class='log' id='log'>Ready.\n</div>
+      </section>
+    </aside>

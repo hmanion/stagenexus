@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block content %}
+  <header>
+    <h1>Today Digital Campaign Operations</h1>
+    {% include 'partials/nav_controls.html' %}
+  </header>
+  <div class='app-shell'>
+    {% include 'partials/demo_rail.html' %}
+    <main>
+      {% include 'partials/screen_sections.html' %}
+    </main>
+  </div>
+  {% include 'partials/object_panel.html' %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    window.UI_FLAGS = {{ ui_flags | tojson }};
+  </script>
+  <script src='/static/app.js'></script>
+{% endblock %}
