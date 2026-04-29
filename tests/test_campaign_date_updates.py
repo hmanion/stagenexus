@@ -29,20 +29,18 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
 
     @patch("app.api.routes.campaigns.PublicIdService")
     @patch("app.api.routes.campaigns.MilestoneService")
-    @patch("app.api.routes.campaigns._actor_has_control_permission")
     @patch("app.api.routes.campaigns.AuthzService")
     @patch("app.api.routes.campaigns._resolve_by_identifier")
     def test_update_campaign_dates_success_response_shape(
         self,
         resolve_by_identifier: Mock,
         authz_service_cls: Mock,
-        has_control_permission: Mock,
         milestone_service_cls: Mock,
         public_id_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
         authz_service_cls.return_value.actor.return_value = SimpleNamespace()
-        has_control_permission.return_value = True
+        authz_service_cls.return_value.has_control_permission.return_value = True
         milestone_service_cls.return_value.reanchor_campaign_milestones.return_value = MilestoneReanchorResult(
             moved=2,
             skipped=0,
@@ -62,20 +60,18 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
 
     @patch("app.api.routes.campaigns.PublicIdService")
     @patch("app.api.routes.campaigns.MilestoneService")
-    @patch("app.api.routes.campaigns._actor_has_control_permission")
     @patch("app.api.routes.campaigns.AuthzService")
     @patch("app.api.routes.campaigns._resolve_by_identifier")
     def test_update_campaign_dates_with_skips_still_succeeds_and_logs_metadata(
         self,
         resolve_by_identifier: Mock,
         authz_service_cls: Mock,
-        has_control_permission: Mock,
         milestone_service_cls: Mock,
         public_id_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
         authz_service_cls.return_value.actor.return_value = SimpleNamespace()
-        has_control_permission.return_value = True
+        authz_service_cls.return_value.has_control_permission.return_value = True
         milestone_service_cls.return_value.reanchor_campaign_milestones.return_value = MilestoneReanchorResult(
             moved=1,
             skipped=1,
@@ -101,18 +97,16 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
         self.assertEqual(len(added_activity_log.meta_json["milestone_warnings"]), 1)
         self.db.commit.assert_called_once()
 
-    @patch("app.api.routes.campaigns._actor_has_control_permission")
     @patch("app.api.routes.campaigns.AuthzService")
     @patch("app.api.routes.campaigns._resolve_by_identifier")
     def test_update_campaign_dates_requires_at_least_one_date(
         self,
         resolve_by_identifier: Mock,
         authz_service_cls: Mock,
-        has_control_permission: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
         authz_service_cls.return_value.actor.return_value = SimpleNamespace()
-        has_control_permission.return_value = True
+        authz_service_cls.return_value.has_control_permission.return_value = True
         payload = CampaignDatesUpdateIn(actor_user_id="actor-1", planned_start_iso=None, planned_end_iso=None)
 
         with self.assertRaises(HTTPException) as exc:

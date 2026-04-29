@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.identifiers import resolve_by_identifier
 from app.models.domain import Deal, RoleName
 from app.services.authz_service import AuthzService
 
@@ -14,9 +15,7 @@ def get_actor(db: Session, actor_user_id: str) -> Any:
 
 
 def get_deal_or_404(db: Session, deal_id: str, *, detail: str = "scope not found") -> Deal:
-    from app.api.core_routes import _resolve_by_identifier
-
-    deal = _resolve_by_identifier(db, Deal, deal_id)
+    deal = resolve_by_identifier(db, Deal, deal_id)
     if not deal:
         raise HTTPException(status_code=404, detail=detail)
     return deal

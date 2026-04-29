@@ -26,8 +26,6 @@ def assert_sqlite_foreign_keys_enabled(target_engine: Engine) -> None:
     if target_engine.url.get_backend_name() != "sqlite":
         return
     with target_engine.connect() as conn:
-        # Defensive startup guard: enforce FK pragma on this connection before asserting.
-        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         enabled = int(conn.exec_driver_sql("PRAGMA foreign_keys").scalar() or 0)
     if enabled != 1:
         raise RuntimeError("SQLite foreign key enforcement is disabled (PRAGMA foreign_keys != 1).")

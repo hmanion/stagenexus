@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.api.identifiers import resolve_by_identifier as _resolve_by_identifier
 from app.db.session import get_db
 from app.models.domain import (
     ActivityLog,
@@ -80,7 +81,6 @@ from app.services.workflow_engine_service import WorkflowEngineService
 
 from app.api.core_routes import (
     _assignment_role_lane,
-    _actor_has_control_permission,
     _actor_has_full_scope_campaign_visibility,
     _campaign_for_deliverable,
     _campaign_timeframe_from_milestones,
@@ -95,7 +95,6 @@ from app.api.core_routes import (
     _normalize_deliverable_status,
     _normalize_step_status,
     _participant_initials_for_step,
-    _resolve_by_identifier,
     _step_module_type,
     _step_linked_deliverable,
 )
@@ -148,8 +147,7 @@ def delete_campaign(campaign_id: str, actor_user_id: str, db: Session = Depends(
 
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
-    allowed = _actor_has_control_permission(
-        db,
+    allowed = authz.has_control_permission(
         actor,
         "delete_campaign",
         fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -797,14 +795,12 @@ def update_campaign_assignments(campaign_id: str, payload: CampaignAssignmentsUp
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    can_manage_assignments = _actor_has_control_permission(
-        db,
+    can_manage_assignments = authz.has_control_permission(
         actor,
         "manage_campaign_assignments",
         fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
     )
-    can_manage_step = _actor_has_control_permission(
-        db,
+    can_manage_step = authz.has_control_permission(
         actor,
         "manage_step",
         fallback_allowed_roles={RoleName.CM, RoleName.CC, RoleName.CCS, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -986,8 +982,7 @@ def update_campaign_status(campaign_id: str, payload: CampaignStatusUpdateIn, db
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "manage_campaign_status",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1031,9 +1026,9 @@ def bulk_update_campaign_descendant_status(campaign_id: str, payload: CampaignDe
     campaign = _resolve_by_identifier(db, Campaign, campaign_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="campaign not found")
-    actor = AuthzService(db).actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    authz = AuthzService(db)
+    actor = authz.actor(payload.actor_user_id)
+    if not authz.has_control_permission(
         actor,
         "manage_campaign_status",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1091,8 +1086,7 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "manage_campaign_dates",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1844,8 +1838,7 @@ def delete_deliverable(deliverable_id: str, actor_user_id: str, db: Session = De
 
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "delete_deliverable",
         fallback_allowed_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1875,8 +1868,7 @@ def override_deliverable_due(deliverable_id: str, payload: DeliverableDueUpdateI
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "override_step_due",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1923,8 +1915,7 @@ def update_deliverable_dates(deliverable_id: str, payload: DeliverableDatesUpdat
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "manage_deliverable_dates",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1988,8 +1979,7 @@ def update_deliverable_stage(deliverable_id: str, payload: DeliverableStageUpdat
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "edit_deliverable_stage",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -2033,8 +2023,7 @@ def update_deliverable_owner(deliverable_id: str, payload: DeliverableOwnerUpdat
 
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "manage_deliverable_owner",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -2405,9 +2394,9 @@ def update_milestone(milestone_id: str, payload: MilestoneUpdateIn, db: Session 
     milestone = _resolve_by_identifier(db, Milestone, milestone_id)
     if not milestone:
         raise HTTPException(status_code=404, detail="milestone not found")
-    actor = AuthzService(db).actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    authz = AuthzService(db)
+    actor = authz.actor(payload.actor_user_id)
+    if not authz.has_control_permission(
         actor,
         "manage_campaign_dates",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -2444,9 +2433,9 @@ def update_milestone_completion(milestone_id: str, payload: MilestoneCompletionU
     milestone = _resolve_by_identifier(db, Milestone, milestone_id)
     if not milestone:
         raise HTTPException(status_code=404, detail="milestone not found")
-    actor = AuthzService(db).actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    authz = AuthzService(db)
+    actor = authz.actor(payload.actor_user_id)
+    if not authz.has_control_permission(
         actor,
         "manage_step",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},

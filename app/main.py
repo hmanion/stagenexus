@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router import router
+from app.core.config import settings
 from app.db.base import Base
 from app.db.schema_updates import assert_runtime_integrity, ensure_runtime_schema
 from app.db.session import assert_sqlite_foreign_keys_enabled, engine
@@ -20,10 +21,11 @@ app = FastAPI(title="Today Digital Campaign Operations")
 
 @app.on_event("startup")
 def startup() -> None:
-    # Transitional compatibility path: baseline environments still rely on create_all
-    # + runtime schema updates while Alembic rollout completes.
-    Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema(engine)
+    if settings.runtime_schema_compat:
+        # Local/dev compatibility path for pre-Alembic databases. Staging and
+        # production should run Alembic migrations before startup instead.
+        Base.metadata.create_all(bind=engine)
+        ensure_runtime_schema(engine)
     assert_sqlite_foreign_keys_enabled(engine)
     assert_runtime_integrity(engine)
 

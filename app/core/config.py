@@ -10,12 +10,16 @@ def _as_bool(value: str | None, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+APP_ENV = os.getenv("APP_ENV", "local")
+
+
 @dataclass(frozen=True)
 class Settings:
-    app_env: str = os.getenv("APP_ENV", "local")
+    app_env: str = APP_ENV
     app_port: int = int(os.getenv("APP_PORT", "8000"))
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./campaign_ops.db")
     secret_key: str = os.getenv("SECRET_KEY", "change-me")
+    runtime_schema_compat: bool = _as_bool(os.getenv("RUNTIME_SCHEMA_COMPAT"), APP_ENV in {"local", "dev", "development"})
     holiday_source_url: str = os.getenv("HOLIDAY_SOURCE_URL", "https://www.gov.uk/bank-holidays.json")
     show_demo_rail: bool = _as_bool(os.getenv("SHOW_DEMO_RAIL"), True)
     demo_rail_allowed_roles: tuple[str, ...] = tuple(

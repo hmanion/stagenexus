@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.identifiers import resolve_by_identifier as _resolve_by_identifier
 from app.db.session import get_db
 from app.models.domain import (
     ActivityLog,
@@ -118,40 +119,12 @@ from app.services.team_inference_service import TeamInferenceService
 
 router = APIRouter(prefix="/api", tags=["campaign-ops"])
 
-TModel = TypeVar("TModel")
-
-APP_CONTROL_IDS: set[str] = {
-    "run_ops_job",
-    "refresh_data",
-    "admin_add_user",
-    "admin_edit_user_name",
-    "admin_edit_user_email",
-    "admin_set_user_team",
-    "admin_set_user_seniority_manager",
-    "admin_set_user_seniority_leadership",
-    "admin_set_user_app_role_admin",
-    "admin_set_user_app_role_superadmin",
-    "admin_remove_user",
-}
-
-
-def _is_app_control(control_id: str) -> bool:
-    return str(control_id).startswith("admin_") or control_id in APP_CONTROL_IDS
-
 
 def _actor_has_full_scope_campaign_visibility(actor: Any) -> bool:
     return (
         actor.app_role in {AppAccessRole.ADMIN, AppAccessRole.SUPERADMIN}
         or actor.seniority == SeniorityLevel.LEADERSHIP
     )
-
-
-def _resolve_by_identifier(db: Session, model: type[TModel], identifier: str) -> TModel | None:
-    # Compatibility: allow both internal UUID and display ID during transition.
-    by_pk = db.get(model, identifier)
-    if by_pk:
-        return by_pk
-    return db.scalar(select(model).where(model.display_id == identifier))
 
 
 def _campaign_for_deliverable(db: Session, deliverable: Deliverable) -> Campaign | None:
@@ -261,60 +234,6 @@ def _evaluate_deliverable_health_batch(db: Session, deliverables: list[Deliverab
         payload_by_identifier[deliverable.id] = payload
         payload_by_identifier[deliverable.display_id] = payload
     return payload_by_identifier
-
-
-def _role_permissions_payload(db: Session) -> dict:
-    defaults = OpsDefaultsService(db).get()
-    role_permissions = defaults.get("role_permissions") or {}
-    return {
-        "role_flags": role_permissions.get("role_flags") or {},
-        "control_permissions": role_permissions.get("control_permissions") or {},
-    }
-
-
-def _identity_permissions_payload(db: Session) -> dict:
-    defaults = OpsDefaultsService(db).get()
-    identity_permissions = defaults.get("identity_permissions") or {}
-    legacy_controls = identity_permissions.get("control_permissions") or {}
-    campaign_controls = identity_permissions.get("campaign_control_permissions") or {}
-    app_controls = identity_permissions.get("app_control_permissions") or {}
-    return {
-        "screen_flags": identity_permissions.get("screen_flags") or {},
-        "control_permissions": legacy_controls,
-        "campaign_control_permissions": campaign_controls,
-        "app_control_permissions": app_controls,
-    }
-
-
-def _identity_rule_allows(rule: dict | None, *, team: TeamName, seniority: SeniorityLevel, app_role: AppAccessRole) -> bool:
-    if app_role == AppAccessRole.SUPERADMIN:
-        return True
-    if not isinstance(rule, dict):
-        return False
-    teams = {str(v) for v in (rule.get("teams") or [])}
-    seniorities = {str(v) for v in (rule.get("seniorities") or [])}
-    app_roles = {str(v) for v in (rule.get("app_roles") or [])}
-    return (team.value in teams) and (seniority.value in seniorities) and (app_role.value in app_roles)
-
-
-def _identity_campaign_rule_allows(rule: dict | None, *, team: TeamName, seniority: SeniorityLevel, app_role: AppAccessRole) -> bool:
-    if app_role == AppAccessRole.SUPERADMIN:
-        return True
-    if not isinstance(rule, dict):
-        return False
-    teams = {str(v) for v in (rule.get("teams") or [])}
-    seniorities = {str(v) for v in (rule.get("seniorities") or [])}
-    return (team.value in teams) and (seniority.value in seniorities)
-
-
-def _identity_app_rule_allows(rule: dict | None, *, seniority: SeniorityLevel, app_role: AppAccessRole) -> bool:
-    if app_role == AppAccessRole.SUPERADMIN:
-        return True
-    if not isinstance(rule, dict):
-        return False
-    seniorities = {str(v) for v in (rule.get("seniorities") or [])}
-    app_roles = {str(v) for v in (rule.get("app_roles") or [])}
-    return (seniority.value in seniorities) and (app_role.value in app_roles)
 
 
 def _initials_for_name(name: str | None) -> str:
@@ -744,45 +663,6 @@ def _delete_scope_graph(db: Session, deal_id: str) -> dict[str, int]:
     return deleted
 
 
-def _actor_has_control_permission(
-    db: Session,
-    actor: Any,
-    control_id: str,
-    fallback_allowed_roles: set[RoleName] | None = None,
-) -> bool:
-    if getattr(actor, "app_role", None) == AppAccessRole.SUPERADMIN:
-        return True
-    identity_payload = _identity_permissions_payload(db)
-    if _is_app_control(control_id):
-        app_rule = (identity_payload.get("app_control_permissions") or {}).get(control_id)
-        if _identity_app_rule_allows(
-            app_rule,
-            seniority=actor.seniority,
-            app_role=actor.app_role,
-        ):
-            return True
-    else:
-        campaign_rule = (identity_payload.get("campaign_control_permissions") or {}).get(control_id)
-        if _identity_campaign_rule_allows(
-            campaign_rule,
-            team=actor.primary_team,
-            seniority=actor.seniority,
-            app_role=actor.app_role,
-        ):
-            return True
-    identity_rule = (identity_payload.get("control_permissions") or {}).get(control_id)
-    if _identity_rule_allows(identity_rule, team=actor.primary_team, seniority=actor.seniority, app_role=actor.app_role):
-        return True
-    perms = _role_permissions_payload(db).get("control_permissions") or {}
-    configured = perms.get(control_id)
-    if isinstance(configured, list):
-        allowed_values = {str(v) for v in configured}
-        if any(role.value in allowed_values for role in actor.roles):
-            return True
-    if fallback_allowed_roles:
-        return bool(actor.roles.intersection(fallback_allowed_roles))
-    return False
-
 @router.get("/dashboard/role")
 def dashboard_by_role(role: str, actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
@@ -800,13 +680,13 @@ def dashboard_by_role(role: str, actor_user_id: str, db: Session = Depends(get_d
     summary = dashboard_summary(db)
     my_work = MyWorkQueueService(db).build(actor_user_id)
 
-    identity_permissions = _identity_permissions_payload(db)
+    identity_permissions = authz.identity_permissions_payload()
     screen_rules = identity_permissions.get("screen_flags") or {}
     campaign_control_rules = identity_permissions.get("campaign_control_permissions") or {}
     app_control_rules = identity_permissions.get("app_control_permissions") or {}
     legacy_control_rules = identity_permissions.get("control_permissions") or {}
     role_flags = {
-        key: _identity_rule_allows(
+        key: AuthzService.identity_rule_allows(
             screen_rules.get(key),
             team=actor.primary_team,
             seniority=actor.seniority,
@@ -816,7 +696,7 @@ def dashboard_by_role(role: str, actor_user_id: str, db: Session = Depends(get_d
     }
     controls: set[str] = set()
     for control_id, rule in campaign_control_rules.items():
-        if _identity_campaign_rule_allows(
+        if AuthzService.identity_campaign_rule_allows(
             rule,
             team=actor.primary_team,
             seniority=actor.seniority,
@@ -824,14 +704,14 @@ def dashboard_by_role(role: str, actor_user_id: str, db: Session = Depends(get_d
         ):
             controls.add(control_id)
     for control_id, rule in app_control_rules.items():
-        if _identity_app_rule_allows(
+        if AuthzService.identity_app_rule_allows(
             rule,
             seniority=actor.seniority,
             app_role=actor.app_role,
         ):
             controls.add(control_id)
     for control_id, rule in legacy_control_rules.items():
-        if _identity_rule_allows(
+        if AuthzService.identity_rule_allows(
             rule,
             team=actor.primary_team,
             seniority=actor.seniority,
@@ -891,8 +771,8 @@ def get_role_permissions(actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
     authz.require_any(actor, {RoleName.HEAD_OPS, RoleName.ADMIN})
-    payload = _role_permissions_payload(db)
-    identity = _identity_permissions_payload(db)
+    payload = authz.role_permissions_payload()
+    identity = authz.identity_permissions_payload()
     return {
         "role_permissions": payload,
         "identity_permissions": identity,
@@ -974,8 +854,7 @@ def admin_list_users(actor_user_id: str, db: Session = Depends(get_db)):
 def admin_create_user(payload: AdminUserCreateIn, actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "admin_add_user",
         fallback_allowed_roles={RoleName.ADMIN},
@@ -998,26 +877,26 @@ def admin_create_user(payload: AdminUserCreateIn, actor_user_id: str, db: Sessio
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail="invalid primary_team/seniority/app_role") from exc
 
-    if not _actor_has_control_permission(
-        db, actor, "admin_set_user_team", fallback_allowed_roles={RoleName.ADMIN}
+    if not authz.has_control_permission(
+        actor, "admin_set_user_team", fallback_allowed_roles={RoleName.ADMIN}
     ):
         raise HTTPException(status_code=403, detail="cannot set user team")
     if seniority == SeniorityLevel.LEADERSHIP:
-        if not _actor_has_control_permission(
-            db, actor, "admin_set_user_seniority_leadership"
+        if not authz.has_control_permission(
+            actor, "admin_set_user_seniority_leadership"
         ):
             raise HTTPException(status_code=403, detail="cannot set leadership seniority")
     else:
-        if not _actor_has_control_permission(
-            db, actor, "admin_set_user_seniority_manager", fallback_allowed_roles={RoleName.ADMIN}
+        if not authz.has_control_permission(
+            actor, "admin_set_user_seniority_manager", fallback_allowed_roles={RoleName.ADMIN}
         ):
             raise HTTPException(status_code=403, detail="cannot set user seniority")
 
     if app_role == AppAccessRole.SUPERADMIN:
-        if not _actor_has_control_permission(db, actor, "admin_set_user_app_role_superadmin"):
+        if not authz.has_control_permission(actor, "admin_set_user_app_role_superadmin"):
             raise HTTPException(status_code=403, detail="cannot set superadmin app role")
     elif app_role == AppAccessRole.ADMIN:
-        if not _actor_has_control_permission(db, actor, "admin_set_user_app_role_admin"):
+        if not authz.has_control_permission(actor, "admin_set_user_app_role_admin"):
             raise HTTPException(status_code=403, detail="cannot set admin app role")
     elif app_role != AppAccessRole.USER:
         raise HTTPException(status_code=400, detail="invalid app_role")
@@ -1093,8 +972,8 @@ def admin_update_user_roles(user_id: str, payload: AdminUserRolesUpdateIn, actor
     updates_meta: dict[str, Any] = {}
     new_full_name = str(payload.full_name or "").strip()
     if payload.full_name is not None and new_full_name and new_full_name != user.full_name:
-        if not _actor_has_control_permission(
-            db, actor, "admin_edit_user_name", fallback_allowed_roles={RoleName.ADMIN}
+        if not authz.has_control_permission(
+            actor, "admin_edit_user_name", fallback_allowed_roles={RoleName.ADMIN}
         ):
             raise HTTPException(status_code=403, detail="cannot edit user name")
         user.full_name = new_full_name
@@ -1105,8 +984,8 @@ def admin_update_user_roles(user_id: str, payload: AdminUserRolesUpdateIn, actor
         if not new_email:
             raise HTTPException(status_code=400, detail="email cannot be empty")
         if new_email != user.email.lower():
-            if not _actor_has_control_permission(
-                db, actor, "admin_edit_user_email", fallback_allowed_roles={RoleName.ADMIN}
+            if not authz.has_control_permission(
+                actor, "admin_edit_user_email", fallback_allowed_roles={RoleName.ADMIN}
             ):
                 raise HTTPException(status_code=403, detail="cannot edit user email")
             existing_email_user = db.scalar(select(User).where(func.lower(User.email) == new_email, User.id != user.id))
@@ -1115,28 +994,28 @@ def admin_update_user_roles(user_id: str, payload: AdminUserRolesUpdateIn, actor
             user.email = new_email
             updates_meta["email"] = new_email
 
-    if not _actor_has_control_permission(
-        db, actor, "admin_set_user_team", fallback_allowed_roles={RoleName.ADMIN}
+    if not authz.has_control_permission(
+        actor, "admin_set_user_team", fallback_allowed_roles={RoleName.ADMIN}
     ):
         raise HTTPException(status_code=403, detail="cannot set user team")
     user.primary_team = primary_team
 
     if seniority == SeniorityLevel.LEADERSHIP:
-        if not _actor_has_control_permission(db, actor, "admin_set_user_seniority_leadership"):
+        if not authz.has_control_permission(actor, "admin_set_user_seniority_leadership"):
             raise HTTPException(status_code=403, detail="cannot set leadership seniority")
     else:
-        if not _actor_has_control_permission(
-            db, actor, "admin_set_user_seniority_manager", fallback_allowed_roles={RoleName.ADMIN}
+        if not authz.has_control_permission(
+            actor, "admin_set_user_seniority_manager", fallback_allowed_roles={RoleName.ADMIN}
         ):
             raise HTTPException(status_code=403, detail="cannot set user seniority")
     user.seniority = seniority
 
     if app_role != user.app_role:
         if app_role == AppAccessRole.SUPERADMIN:
-            if not _actor_has_control_permission(db, actor, "admin_set_user_app_role_superadmin"):
+            if not authz.has_control_permission(actor, "admin_set_user_app_role_superadmin"):
                 raise HTTPException(status_code=403, detail="cannot set superadmin app role")
         elif app_role == AppAccessRole.ADMIN:
-            if not _actor_has_control_permission(db, actor, "admin_set_user_app_role_admin"):
+            if not authz.has_control_permission(actor, "admin_set_user_app_role_admin"):
                 raise HTTPException(status_code=403, detail="cannot set admin app role")
         elif app_role != AppAccessRole.USER:
             raise HTTPException(status_code=400, detail="invalid app_role")
@@ -1187,7 +1066,7 @@ def admin_update_user_roles(user_id: str, payload: AdminUserRolesUpdateIn, actor
 def admin_remove_user(user_id: str, actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
-    if not _actor_has_control_permission(db, actor, "admin_remove_user"):
+    if not authz.has_control_permission(actor, "admin_remove_user"):
         raise HTTPException(status_code=403, detail="insufficient role permissions")
 
     user = db.get(User, user_id)
@@ -1456,8 +1335,7 @@ def complete_workflow_step(step_id: str, payload: StepCompleteIn, db: Session = 
 def override_workflow_step_due(step_id: str, payload: StepOverrideDueIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    if not _actor_has_control_permission(
-        db,
+    if not authz.has_control_permission(
         actor,
         "override_step_due",
         fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1496,8 +1374,7 @@ def override_workflow_step_due(step_id: str, payload: StepOverrideDueIn, db: Ses
 def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(payload.actor_user_id)
-    has_step_control = _actor_has_control_permission(
-        db,
+    has_step_control = authz.has_control_permission(
         actor,
         "manage_step",
         fallback_allowed_roles={RoleName.CM, RoleName.CC, RoleName.CCS, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1517,13 +1394,11 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         raise HTTPException(status_code=404, detail="workflow step not found")
 
     if payload.current_due_iso or payload.current_start_iso or payload.planned_work_date_iso:
-        can_manage_step_dates = _actor_has_control_permission(
-            db,
+        can_manage_step_dates = authz.has_control_permission(
             actor,
             "manage_step_dates",
             fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
-        ) or _actor_has_control_permission(
-            db,
+        ) or authz.has_control_permission(
             actor,
             "override_step_due",
             fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},
@@ -1532,8 +1407,7 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
             raise HTTPException(status_code=403, detail="insufficient role permissions to edit step dates")
     if payload.completion_date_iso is not None:
         is_owner = bool(existing_step.next_owner_user_id and existing_step.next_owner_user_id == payload.actor_user_id)
-        can_manage_completion = is_owner or _actor_has_control_permission(
-            db,
+        can_manage_completion = is_owner or authz.has_control_permission(
             actor,
             "manage_step_dates",
             fallback_allowed_roles={RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN},

@@ -10,6 +10,12 @@ This baseline introduces formal Alembic migration discipline while preserving mi
 - Identity/access, commercial setup, reference/config, risk/performance/capacity/audit tables are all part of baseline v1.
 - Auxiliary current-state tables retained: `public_id_counters`, `notes`.
 
+## Startup policy
+- Staging and production must run Alembic migrations before application startup.
+- Runtime schema compatibility repair is gated by `RUNTIME_SCHEMA_COMPAT`.
+- `RUNTIME_SCHEMA_COMPAT` defaults on only for `APP_ENV=local`, `dev`, or `development`.
+- Local smoke testing may still use the compatibility path for pre-Alembic databases.
+
 ## Transitional compatibility baggage retained intentionally
 - `sprints` table remains for migration-window safety.
 - Compatibility `sprint_id` links remain on:
@@ -18,7 +24,7 @@ This baseline introduces formal Alembic migration discipline while preserving mi
   - `milestones`
   - `product_modules`
 - `workflow_steps.deliverable_id` remains as a compatibility alias while `linked_deliverable_id` is the canonical deliverable linkage for steps.
-- Runtime schema patching (`ensure_runtime_schema`) remains temporarily for rollout safety and is now explicitly marked as transitional compatibility debt.
+- Runtime schema patching (`ensure_runtime_schema`) remains temporarily for local/dev rollout safety and is now explicitly gated transitional compatibility debt.
 
 ## Long-term target state
 - Campaign records persist demand sprint identity via campaign fields:

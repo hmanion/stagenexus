@@ -18,6 +18,7 @@ from app.models.domain import (
     User,
     UserRoleAssignment,
 )
+from app.services.ops_defaults_service import APP_CONTROL_IDS, OpsDefaultsService
 
 
 @dataclass
@@ -78,6 +79,138 @@ class AuthzService:
         if actor.roles.intersection(allowed):
             return
         raise HTTPException(status_code=403, detail="insufficient role permissions")
+
+    def role_permissions_payload(self) -> dict:
+        defaults = OpsDefaultsService(self.db).get()
+        role_permissions = defaults.get("role_permissions") or {}
+        return {
+            "role_flags": role_permissions.get("role_flags") or {},
+            "control_permissions": role_permissions.get("control_permissions") or {},
+        }
+
+    def identity_permissions_payload(self) -> dict:
+        defaults = OpsDefaultsService(self.db).get()
+        identity_permissions = defaults.get("identity_permissions") or {}
+        legacy_controls = identity_permissions.get("control_permissions") or {}
+        campaign_controls = identity_permissions.get("campaign_control_permissions") or {}
+        app_controls = identity_permissions.get("app_control_permissions") or {}
+        return {
+            "screen_flags": identity_permissions.get("screen_flags") or {},
+            "control_permissions": legacy_controls,
+            "campaign_control_permissions": campaign_controls,
+            "app_control_permissions": app_controls,
+        }
+
+    @staticmethod
+    def identity_rule_allows(
+        rule: dict | None,
+        *,
+        team: TeamName,
+        seniority: SeniorityLevel,
+        app_role: AppAccessRole,
+    ) -> bool:
+        if app_role == AppAccessRole.SUPERADMIN:
+            return True
+        if not isinstance(rule, dict):
+            return False
+        teams = {str(v) for v in (rule.get("teams") or [])}
+        seniorities = {str(v) for v in (rule.get("seniorities") or [])}
+        app_roles = {str(v) for v in (rule.get("app_roles") or [])}
+        return (team.value in teams) and (seniority.value in seniorities) and (app_role.value in app_roles)
+
+    @staticmethod
+    def identity_campaign_rule_allows(
+        rule: dict | None,
+        *,
+        team: TeamName,
+        seniority: SeniorityLevel,
+        app_role: AppAccessRole,
+    ) -> bool:
+        if app_role == AppAccessRole.SUPERADMIN:
+            return True
+        if not isinstance(rule, dict):
+            return False
+        teams = {str(v) for v in (rule.get("teams") or [])}
+        seniorities = {str(v) for v in (rule.get("seniorities") or [])}
+        return (team.value in teams) and (seniority.value in seniorities)
+
+    @staticmethod
+    def identity_app_rule_allows(
+        rule: dict | None,
+        *,
+        seniority: SeniorityLevel,
+        app_role: AppAccessRole,
+    ) -> bool:
+        if app_role == AppAccessRole.SUPERADMIN:
+            return True
+        if not isinstance(rule, dict):
+            return False
+        seniorities = {str(v) for v in (rule.get("seniorities") or [])}
+        app_roles = {str(v) for v in (rule.get("app_roles") or [])}
+        return (seniority.value in seniorities) and (app_role.value in app_roles)
+
+    @staticmethod
+    def is_app_control(control_id: str) -> bool:
+        return str(control_id).startswith("admin_") or control_id in APP_CONTROL_IDS
+
+    def has_control_permission(
+        self,
+        actor: Actor,
+        control_id: str,
+        fallback_allowed_roles: set[RoleName] | None = None,
+    ) -> bool:
+        if actor.app_role == AppAccessRole.SUPERADMIN:
+            return True
+
+        identity_payload = self.identity_permissions_payload()
+        if self.is_app_control(control_id):
+            app_rule = (identity_payload.get("app_control_permissions") or {}).get(control_id)
+            if self.identity_app_rule_allows(
+                app_rule,
+                seniority=actor.seniority,
+                app_role=actor.app_role,
+            ):
+                return True
+        else:
+            campaign_rule = (identity_payload.get("campaign_control_permissions") or {}).get(control_id)
+            if self.identity_campaign_rule_allows(
+                campaign_rule,
+                team=actor.primary_team,
+                seniority=actor.seniority,
+                app_role=actor.app_role,
+            ):
+                return True
+
+        identity_rule = (identity_payload.get("control_permissions") or {}).get(control_id)
+        if self.identity_rule_allows(
+            identity_rule,
+            team=actor.primary_team,
+            seniority=actor.seniority,
+            app_role=actor.app_role,
+        ):
+            return True
+
+        configured = (self.role_permissions_payload().get("control_permissions") or {}).get(control_id)
+        if isinstance(configured, list):
+            allowed_values = {str(v) for v in configured}
+            if any(role.value in allowed_values for role in actor.roles):
+                return True
+
+        if fallback_allowed_roles:
+            return bool(actor.roles.intersection(fallback_allowed_roles))
+        return False
+
+    def require_control_permission(
+        self,
+        actor: Actor,
+        control_id: str,
+        fallback_allowed_roles: set[RoleName] | None = None,
+        *,
+        detail: str = "insufficient role permissions",
+    ) -> None:
+        if self.has_control_permission(actor, control_id, fallback_allowed_roles):
+            return
+        raise HTTPException(status_code=403, detail=detail)
 
     def require_deal_owner_or_roles(self, actor: Actor, deal: Deal, allowed_roles: set[RoleName]) -> None:
         if deal.am_user_id == actor.user_id:

@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.core_routes import _resolve_by_identifier, router as core_router
+from app.api.core_routes import router as core_router
+from app.api.identifiers import resolve_by_identifier
 from app.api.routes.campaigns import router as campaigns_router
 from app.api.routes.deals import router as deals_router
 from app.db.session import get_db
@@ -17,6 +18,7 @@ router = APIRouter()
 router.include_router(deals_router)
 router.include_router(campaigns_router)
 router.include_router(core_router)
+_resolve_by_identifier = resolve_by_identifier
 
 
 def create_sow_change_request(
@@ -53,5 +55,6 @@ __all__ = [
     "ChangeControlService",
     "_resolve_by_identifier",
     "create_sow_change_request",
+    "resolve_by_identifier",
     "router",
 ]
