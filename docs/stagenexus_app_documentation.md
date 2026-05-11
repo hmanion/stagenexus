@@ -4,7 +4,7 @@
 
 **StageNexus** is a FastAPI-based campaign operations backend for Today Digital. The repository positions it as a purpose-built operations system for managing the lifecycle from commercial agreement through campaign execution, using the core model:
 
-**Deal -> Campaign -> Sprint -> Module -> Deliverable -> Workflow Step**
+**Deal -> Campaign -> Stage -> Step** (with deliverables as campaign children that can be linked to steps)
 
 The current app is implemented in Python rather than Laravel, but the repo explicitly keeps the architecture framework-agnostic so it can later migrate to Laravel if needed.
 
@@ -13,7 +13,7 @@ The current app is implemented in Python rather than Laravel, but the repo expli
 The repo and project notes show that the app already supports:
 
 - deal creation, submission, ops approval, and campaign generation
-- campaign, sprint, module, deliverable, and workflow-step data structures
+- campaign, stage, deliverable, and workflow-step data structures
 - a working-day timeline engine based on a **Mon-Thu** working week
 - England/Wales bank holiday support using the GOV.UK holiday feed
 - separate **system risks** and **manual risks**
@@ -32,7 +32,7 @@ The repo and project notes show that the app already supports:
 - **Pydantic 2.x** schemas for API validation
 - **Uvicorn** for local serving
 - **PyMySQL** support for MySQL 8
-- **Alembic** is present as a dependency, though the notes suggest migration history is not yet fully in place
+- **Alembic** is now the documented source of truth for structural migrations
 
 ### Runtime behavior
 At startup, the app:
@@ -116,18 +116,15 @@ The documentation and model names indicate a campaign operations domain built ar
    - pinned to a template version
    - assigned operational ownership, typically CM-led
 
-3. **Sprint / Stage**
-   - time-based delivery segments inside campaigns
+3. **Stage**
+   - delivery segments inside campaigns
    - used for planning, health tracking, and sequencing
 
-4. **Module**
-   - enabled product or operational components within campaigns/sprints
-
-5. **Deliverable**
+4. **Deliverable**
    - actual outputs such as content items or campaign assets
    - one deliverable maps to one publication
 
-6. **Workflow Step**
+5. **Workflow Step**
    - granular execution tasks, approvals, and due-date controlled work
 
 ### Other model families visible in the repo
@@ -257,9 +254,28 @@ The route layer uses an `AuthzService`, and route snippets show role/ownership c
 - deal owner or privileged role for submitting deals
 - restricted approval/generation permissions for ops and leadership flows
 
-The implementation notes still list **strong authorization middleware by role/ownership** as work remaining, so authorization exists but is not yet considered complete.
+Authorization has been hardened and centralized through `AuthzService`, with route-level enforcement across mutable and sensitive paths and dedicated regression coverage in `tests/test_authz_hardening.py`.
 
-## 8. Example operational flow
+## 8. Changes since the last broad docs baseline (2026-04-16, `b33f611`)
+
+Since the last broad docs refresh, the codebase has moved materially in a few areas:
+
+- Route architecture split:
+  - API routes were split from the legacy monolithic route module into `app/api/routes/campaigns.py`, `app/api/routes/deals.py`, and shared helpers in `app/api/core_routes.py` and `app/api/deps.py`.
+- Frontend asset split:
+  - UI assets were separated into static CSS/JS (`app/static/app.css`, `app/static/app.js`) and template partials under `app/templates/`.
+- Migration maturity:
+  - Alembic configuration and baseline migration were added (`alembic.ini`, `alembic/env.py`, `alembic/versions/219fcb44bea6_baseline_v1.py`).
+  - Runtime migration governance and fail-fast expectations outside local/dev were added (`app/db/migration_guard.py`, `docs/migrations.md`).
+- Authorization hardening:
+  - Actor identity resolution and control checks were tightened in `app/services/authz_service.py` and route integration.
+  - Authorization policy inventory was documented in `docs/authorization.md`.
+- Seeding and reference data:
+  - Explicit reference-data seeding scripts and CSV seed data were added (`scripts/seed_reference_data.py`, `app/seeds/stage_steps_hours.csv`).
+- Test coverage expansion:
+  - Rule-focused and governance-focused tests were added for authz, migration guardrails, campaign generation, capacity/risk, publishing, SOW controls, and timeline behavior.
+
+## 9. Example operational flow
 
 A typical intended flow appears to be:
 

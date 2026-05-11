@@ -13,29 +13,42 @@ The current codebase already includes a meaningful operational backbone:
 - capacity ledger with overrides
 - working-day calendar service
 
-## Gaps called out in project notes
+## Progress since last broad docs baseline (2026-04-16, `b33f611`)
 
-### 1. Stronger authorisation
-Role and ownership middleware still needs to be tightened.
+The following areas were previously called out as gaps and are now materially advanced:
 
-### 2. Workflow dependency persistence
-Full DAG persistence and recalculation support are not yet complete.
+- Authorization hardening:
+  - Centralized actor resolution and control checks are now implemented through `AuthzService`.
+  - Route-level enforcement and dedicated authz regression tests were added.
+- Migration maturity:
+  - Alembic baseline setup and migration policy are now in place.
+  - Migration governance and environment-aware fail-fast checks were added.
+- Frontend/documentation structure:
+  - Static UI assets and template partials were split for maintainability.
+  - Additional focused docs were added for authorization and migrations.
+- Rule and governance test coverage:
+  - New tests now cover authz, migration governance, campaign generation, timeline rules, capacity/risk, publishing, and SOW controls.
 
-### 3. Notifications and reminders
-Operational reminders and alerting jobs still need implementation.
+## Remaining gaps and active roadmap
 
-### 4. Richer dashboards and frontend UI
-The backend is ahead of the UI. Dashboard depth and frontend polish remain future work.
+### 1. Dependency persistence and recalculation depth
+Full DAG persistence and recalculation behavior still needs to be completed and hardened.
 
-### 5. Migration maturity
-Alembic migration history and MySQL-specific indexing strategy still need to be formalised.
+### 2. Notifications and reminders
+Operational reminders, escalations, and scheduled alerting jobs still need full implementation.
+
+### 3. Richer dashboards and frontend UX
+The backend remains ahead of the UI; dashboard depth, queue ergonomics, and frontend polish remain future work.
+
+### 4. Production rollout confidence
+Staging/production deployment playbooks, observability, and operational runbooks still need hardening.
 
 ## Practical next steps
 
 ### Near term
 
-- add robust authz checks to every mutable route
-- stabilise the domain schema and formalise migrations
+- close any remaining authz edge cases and keep endpoint-to-policy mapping current
+- continue stabilising workflow dependency persistence and recalculation paths
 - document all current endpoints from the live router
 - add API examples for the remaining operational endpoints
 
@@ -45,6 +58,7 @@ Alembic migration history and MySQL-specific indexing strategy still need to be 
 - add scheduled reminder and escalation jobs
 - add richer dashboard and queue views
 - improve audit and reporting visibility
+- extend production-like migration and startup checks in CI/staging
 
 ### Longer term
 
