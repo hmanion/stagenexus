@@ -1836,7 +1836,9 @@ button.gantt-bar {
 .tag.has-dropdown-caret {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-1);
+  min-width: 10.5rem;
 }
 
 .user-pill.has-dropdown-caret {
