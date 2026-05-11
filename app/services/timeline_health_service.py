@@ -338,11 +338,15 @@ class TimelineHealthService:
             return "done"
         if getattr(deliverable, "ready_to_publish_at", None):
             return "in_progress"
-        raw = str(
-            deliverable.status.value
-            if hasattr(getattr(deliverable, "status", None), "value")
-            else getattr(deliverable, "status", "not_started")
-        ).lower()
+        if getattr(deliverable, "approved_at", None):
+            return "in_progress"
+        if getattr(deliverable, "awaiting_client_review_since", None):
+            return "in_progress"
+        if getattr(deliverable, "awaiting_internal_review_since", None):
+            return "in_progress"
+        if getattr(deliverable, "current_start", None):
+            return "in_progress"
+        raw = "not_started"
         if raw in {"complete"}:
             return "done"
         return raw
@@ -377,7 +381,7 @@ class TimelineHealthService:
         if not deliverables:
             return "not_started"
         stage_order = {"planning": 0, "production": 1, "promotion": 2, "reporting": 3}
-        open_deliverables = [d for d in deliverables if d.status.value not in {"complete"}]
+        open_deliverables = [d for d in deliverables if TimelineHealthService._deliverable_status(d) not in {"done", "cancelled"}]
         if not open_deliverables:
             return "reporting"
         highest = max(

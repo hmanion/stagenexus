@@ -24,7 +24,6 @@ from app.models.domain import (
     CapacityLedger,
     Deliverable,
     DeliverableStage,
-    DeliverableStatus,
     Escalation,
     GlobalStatus,
     ManualRisk,
@@ -1492,7 +1491,7 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                 "baseline_start": None,
                 "current_start": None,
                 "deliverables_total": len(s_deliverables),
-                "deliverables_complete": len([d for d in s_deliverables if d.status == DeliverableStatus.COMPLETE]),
+                "deliverables_complete": len([d for d in s_deliverables if _compute_deliverable_display_status(db, d) == "complete"]),
                 "sections": sections,
             }
         )
@@ -1583,6 +1582,11 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                     "derived_status": _derived_deliverable_status(db, d),
                     "current_step_id": (
                         _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, [])).display_id
+                        if _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, []))
+                        else None
+                    ),
+                    "current_step_name": (
+                        _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, [])).name
                         if _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, []))
                         else None
                     ),
@@ -1743,14 +1747,9 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
         fallback_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
     )
 
-    try:
-        to_status = DeliverableStatus(payload.to_status)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="invalid to_status") from exc
-
     updated = DeliverableWorkflowService(db).transition(
         deliverable=deliverable,
-        to_status=to_status,
+        to_status=str(payload.to_status or "").strip().lower(),
         actor_user_id=effective_actor_user_id,
         actor_roles=actor.roles,
         comment=payload.comment,
@@ -1768,6 +1767,7 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
         "delivery_status": _compute_deliverable_display_status(db, updated),
         "derived_status": _derived_deliverable_status(db, updated),
         "current_step_id": (_deliverable_current_step(db, updated).id if _deliverable_current_step(db, updated) else None),
+        "current_step_name": (_deliverable_current_step(db, updated).name if _deliverable_current_step(db, updated) else None),
         "health": health_payload["health"],
         "health_reason": health_payload["health_reason"],
         "buffer_working_days_remaining": health_payload["buffer_working_days_remaining"],
@@ -2063,6 +2063,7 @@ def deliverable_history(deliverable_id: str, db: Session = Depends(get_db)):
             "delivery_status": _compute_deliverable_display_status(db, deliverable),
             "derived_status": _derived_deliverable_status(db, deliverable),
             "current_step_id": (_deliverable_current_step(db, deliverable).id if _deliverable_current_step(db, deliverable) else None),
+            "current_step_name": (_deliverable_current_step(db, deliverable).name if _deliverable_current_step(db, deliverable) else None),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -2120,6 +2121,7 @@ def deliverable_review_windows(deliverable_id: str, db: Session = Depends(get_db
             "delivery_status": _compute_deliverable_display_status(db, deliverable),
             "derived_status": _derived_deliverable_status(db, deliverable),
             "current_step_id": (_deliverable_current_step(db, deliverable).id if _deliverable_current_step(db, deliverable) else None),
+            "current_step_name": (_deliverable_current_step(db, deliverable).name if _deliverable_current_step(db, deliverable) else None),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -2483,12 +2485,8 @@ def dashboard_summary(db: Session = Depends(get_db)):
         if s.current_due is not None and s.actual_done is None
     ]
 
-    awaiting_client_review = [
-        d for d in deliverables if d.status == DeliverableStatus.AWAITING_CLIENT_REVIEW
-    ]
-    waiting_publish = [
-        d for d in deliverables if d.status == DeliverableStatus.READY_TO_PUBLISH
-    ]
+    awaiting_client_review = [d for d in deliverables if _compute_deliverable_display_status(db, d) == "awaiting_client_review"]
+    waiting_publish = [d for d in deliverables if _compute_deliverable_display_status(db, d) == "ready_to_publish"]
     open_system_risks = db.scalars(select(SystemRisk).where(SystemRisk.is_open.is_(True))).all()
     open_manual_risks = db.scalars(select(ManualRisk).where(ManualRisk.is_open.is_(True))).all()
     over_capacity_rows = db.scalars(

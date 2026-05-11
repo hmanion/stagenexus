@@ -24,7 +24,6 @@ from app.models.domain import (
     Deliverable,
     DeliverableType,
     DeliverableStage,
-    DeliverableStatus,
     GlobalHealth,
     GlobalStatus,
     MilestoneSlaHealth,
@@ -387,18 +386,19 @@ def _normalize_step_health(step: WorkflowStep) -> GlobalHealth:
     return GlobalHealth.ON_TRACK
 
 
-def _normalize_deliverable_status(status: DeliverableStatus) -> GlobalStatus:
-    if status in {DeliverableStatus.PLANNED}:
+def _normalize_deliverable_status(status: str | None) -> GlobalStatus:
+    value = str(status or "").strip().lower()
+    if value in {"planned", "not_started"}:
         return GlobalStatus.NOT_STARTED
-    if status in {
-        DeliverableStatus.IN_PROGRESS,
-        DeliverableStatus.AWAITING_INTERNAL_REVIEW,
-        DeliverableStatus.INTERNAL_REVIEW_COMPLETE,
-        DeliverableStatus.AWAITING_CLIENT_REVIEW,
-        DeliverableStatus.CLIENT_CHANGES_REQUESTED,
-        DeliverableStatus.APPROVED,
-        DeliverableStatus.READY_TO_PUBLISH,
-        DeliverableStatus.SCHEDULED_OR_PUBLISHED,
+    if value in {
+        "in_progress",
+        "awaiting_internal_review",
+        "internal_review_complete",
+        "awaiting_client_review",
+        "client_changes_requested",
+        "approved",
+        "ready_to_publish",
+        "scheduled_or_published",
     }:
         return GlobalStatus.IN_PROGRESS
     return GlobalStatus.DONE
@@ -425,10 +425,11 @@ def _normalize_campaign_status(status: str | None) -> GlobalStatus:
     return GlobalStatus.NOT_STARTED
 
 
-def _normalize_deliverable_health(status: DeliverableStatus) -> GlobalHealth:
-    if status == DeliverableStatus.PLANNED:
+def _normalize_deliverable_health(status: str | None) -> GlobalHealth:
+    value = str(status or "").strip().lower()
+    if value in {"planned", "not_started"}:
         return GlobalHealth.NOT_STARTED
-    if status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+    if value == "client_changes_requested":
         return GlobalHealth.AT_RISK
     return GlobalHealth.ON_TRACK
 
@@ -1299,11 +1300,7 @@ def get_my_work(actor_user_id: str, role: str, include_mode: str = "owned_only",
                 step_info["participant_initials"] = _participant_initials_for_step(step, efforts_by_step, users_by_id)
             deliverable_info = dict(item.get("deliverable") or {})
             if deliverable_info.get("status"):
-                try:
-                    d_status = DeliverableStatus(deliverable_info["status"])
-                    deliverable_info["status"] = _normalize_deliverable_status(d_status).value
-                except ValueError:
-                    pass
+                deliverable_info["status"] = _normalize_deliverable_status(deliverable_info["status"]).value
             d_id = str(deliverable_info.get("id") or "")
             d_health = deliverable_health.get(d_id) if d_id else None
             if d_health:

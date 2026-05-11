@@ -11,7 +11,6 @@ from app.models.domain import (
     ActivityLog,
     Campaign,
     Deliverable,
-    DeliverableStatus,
     Review,
     ReviewRoundEvent,
     ReviewRoundEventType,
@@ -31,22 +30,23 @@ from app.services.ops_defaults_service import OpsDefaultsService
 
 @dataclass(frozen=True)
 class TransitionRule:
-    from_status: DeliverableStatus
-    to_status: DeliverableStatus
+    from_status: str
+    to_status: str
     allowed_roles: set[RoleName]
 
 
 RULES = {
-    (DeliverableStatus.PLANNED, DeliverableStatus.IN_PROGRESS): {RoleName.CM, RoleName.CC, RoleName.CCS},
-    (DeliverableStatus.IN_PROGRESS, DeliverableStatus.AWAITING_INTERNAL_REVIEW): {RoleName.CM, RoleName.CC, RoleName.CCS},
-    (DeliverableStatus.AWAITING_INTERNAL_REVIEW, DeliverableStatus.INTERNAL_REVIEW_COMPLETE): {RoleName.CM, RoleName.HEAD_OPS},
-    (DeliverableStatus.INTERNAL_REVIEW_COMPLETE, DeliverableStatus.AWAITING_CLIENT_REVIEW): {RoleName.AM, RoleName.CM},
-    (DeliverableStatus.AWAITING_CLIENT_REVIEW, DeliverableStatus.CLIENT_CHANGES_REQUESTED): {RoleName.AM, RoleName.CM},
-    (DeliverableStatus.AWAITING_CLIENT_REVIEW, DeliverableStatus.APPROVED): {RoleName.AM, RoleName.CM},
-    (DeliverableStatus.CLIENT_CHANGES_REQUESTED, DeliverableStatus.IN_PROGRESS): {RoleName.CM, RoleName.CC, RoleName.CCS},
-    (DeliverableStatus.APPROVED, DeliverableStatus.READY_TO_PUBLISH): {RoleName.CM, RoleName.CC},
-    (DeliverableStatus.READY_TO_PUBLISH, DeliverableStatus.SCHEDULED_OR_PUBLISHED): {RoleName.CM, RoleName.AM},
-    (DeliverableStatus.SCHEDULED_OR_PUBLISHED, DeliverableStatus.COMPLETE): {RoleName.CM, RoleName.HEAD_OPS},
+    ("planned", "in_progress"): {RoleName.CM, RoleName.CC, RoleName.CCS},
+    ("in_progress", "awaiting_internal_review"): {RoleName.CM, RoleName.CC, RoleName.CCS},
+    ("awaiting_internal_review", "internal_review_complete"): {RoleName.CM, RoleName.HEAD_OPS},
+    ("in_progress", "awaiting_client_review"): {RoleName.AM, RoleName.CM},
+    ("internal_review_complete", "awaiting_client_review"): {RoleName.AM, RoleName.CM},
+    ("awaiting_client_review", "client_changes_requested"): {RoleName.AM, RoleName.CM},
+    ("awaiting_client_review", "approved"): {RoleName.AM, RoleName.CM},
+    ("client_changes_requested", "in_progress"): {RoleName.CM, RoleName.CC, RoleName.CCS},
+    ("approved", "ready_to_publish"): {RoleName.CM, RoleName.CC},
+    ("ready_to_publish", "scheduled_or_published"): {RoleName.CM, RoleName.AM},
+    ("scheduled_or_published", "complete"): {RoleName.CM, RoleName.HEAD_OPS},
 }
 
 
@@ -60,38 +60,37 @@ class DeliverableWorkflowService:
     def transition(
         self,
         deliverable: Deliverable,
-        to_status: DeliverableStatus,
+        to_status: str,
         actor_user_id: str,
         actor_roles: set[RoleName],
         comment: str | None = None,
     ) -> Deliverable:
-        current = deliverable.status
+        current = self._current_status(deliverable)
         if current == to_status:
             return deliverable
 
         allowed = RULES.get((current, to_status))
         if not allowed:
-            raise HTTPException(status_code=400, detail=f"invalid status transition: {current.value} -> {to_status.value}")
+            raise HTTPException(status_code=400, detail=f"invalid status transition: {current} -> {to_status}")
 
         if RoleName.ADMIN not in actor_roles and not actor_roles.intersection(allowed):
             raise HTTPException(status_code=403, detail="actor role not allowed for this transition")
 
-        if to_status == DeliverableStatus.CLIENT_CHANGES_REQUESTED and not (comment or "").strip():
+        if to_status == "client_changes_requested" and not (comment or "").strip():
             raise HTTPException(status_code=400, detail="comment is required when client changes are requested")
 
         now = datetime.utcnow()
         # Deprecated compatibility write. API/UI status is now computed from workflow steps and milestones.
-        deliverable.status = to_status
         self._apply_review_timestamps(deliverable, to_status, now)
         self._apply_waiting_state_to_open_steps(deliverable.id, to_status, now)
         self._apply_review_windows_and_rounds(deliverable=deliverable, to_status=to_status, actor_user_id=actor_user_id, now=now)
 
-        if to_status == DeliverableStatus.READY_TO_PUBLISH:
+        if to_status == "ready_to_publish":
             deliverable.ready_to_publish_by_user_id = actor_user_id
             deliverable.ready_to_publish_at = now
-        if to_status == DeliverableStatus.SCHEDULED_OR_PUBLISHED:
+        if to_status == "scheduled_or_published":
             deliverable.scheduled_or_published_at = now
-        if to_status == DeliverableStatus.COMPLETE:
+        if to_status == "complete":
             deliverable.actual_done = now
 
         self._record_review_if_relevant(deliverable, to_status, actor_user_id, comment)
@@ -101,13 +100,32 @@ class DeliverableWorkflowService:
                 actor_user_id=actor_user_id,
                 entity_type="deliverable",
                 entity_id=deliverable.id,
-                action=f"status:{current.value}->{to_status.value}",
+                action=f"status:{current}->{to_status}",
                 meta_json={"comment": comment or ""},
             )
             )
         if deliverable.campaign_id:
             refresh_campaign_health(self.db, deliverable.campaign_id)
         return deliverable
+
+
+    @staticmethod
+    def _current_status(deliverable: Deliverable) -> str:
+        if getattr(deliverable, "actual_done", None):
+            return "complete"
+        if getattr(deliverable, "scheduled_or_published_at", None) or getattr(deliverable, "published_at", None):
+            return "scheduled_or_published"
+        if getattr(deliverable, "ready_to_publish_at", None):
+            return "ready_to_publish"
+        if getattr(deliverable, "approved_at", None):
+            return "approved"
+        if getattr(deliverable, "client_changes_requested_at", None):
+            return "client_changes_requested"
+        if getattr(deliverable, "awaiting_client_review_since", None):
+            return "awaiting_client_review"
+        if getattr(deliverable, "awaiting_internal_review_since", None):
+            return "awaiting_internal_review"
+        return "in_progress" if getattr(deliverable, "current_start", None) else "planned"
 
     def increment_round(
         self,
@@ -169,29 +187,29 @@ class DeliverableWorkflowService:
             .order_by(ReviewWindow.window_start.desc(), ReviewWindow.created_at.desc())
         ).all()
 
-    def _apply_review_timestamps(self, deliverable: Deliverable, to_status: DeliverableStatus, now: datetime) -> None:
-        if to_status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+    def _apply_review_timestamps(self, deliverable: Deliverable, to_status: str, now: datetime) -> None:
+        if to_status == "awaiting_internal_review":
             deliverable.awaiting_internal_review_since = now
-        elif to_status == DeliverableStatus.INTERNAL_REVIEW_COMPLETE:
+        elif to_status == "internal_review_complete":
             deliverable.awaiting_internal_review_since = None
 
-        if to_status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if to_status == "awaiting_client_review":
             deliverable.awaiting_client_review_since = now
-        elif to_status in {DeliverableStatus.CLIENT_CHANGES_REQUESTED, DeliverableStatus.APPROVED}:
+        elif to_status in {"client_changes_requested", "approved"}:
             deliverable.awaiting_client_review_since = None
-            if to_status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+            if to_status == "client_changes_requested":
                 deliverable.client_changes_requested_at = now
-            if to_status == DeliverableStatus.APPROVED:
+            if to_status == "approved":
                 deliverable.approved_at = now
 
     def _apply_review_windows_and_rounds(
         self,
         deliverable: Deliverable,
-        to_status: DeliverableStatus,
+        to_status: str,
         actor_user_id: str,
         now: datetime,
     ) -> None:
-        if to_status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+        if to_status == "awaiting_internal_review":
             deliverable.internal_review_rounds += 1
             round_no = int(deliverable.internal_review_rounds)
             self._record_round_event(
@@ -206,11 +224,11 @@ class DeliverableWorkflowService:
             self._open_review_window(deliverable, ReviewWindowType.INTERNAL_REVIEW, round_no, actor_user_id, now)
             return
 
-        if to_status == DeliverableStatus.INTERNAL_REVIEW_COMPLETE:
+        if to_status == "internal_review_complete":
             self._complete_open_window(deliverable.id, ReviewWindowType.INTERNAL_REVIEW, now)
             return
 
-        if to_status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if to_status == "awaiting_client_review":
             self._complete_open_window(deliverable.id, ReviewWindowType.AMENDS, now)
             deliverable.client_review_rounds += 1
             round_no = int(deliverable.client_review_rounds)
@@ -226,7 +244,7 @@ class DeliverableWorkflowService:
             self._open_review_window(deliverable, ReviewWindowType.CLIENT_REVIEW, round_no, actor_user_id, now)
             return
 
-        if to_status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+        if to_status == "client_changes_requested":
             self._complete_open_window(deliverable.id, ReviewWindowType.CLIENT_REVIEW, now)
             deliverable.amend_rounds += 1
             round_no = int(deliverable.amend_rounds)
@@ -242,7 +260,7 @@ class DeliverableWorkflowService:
             self._open_review_window(deliverable, ReviewWindowType.AMENDS, round_no, actor_user_id, now)
             return
 
-        if to_status in {DeliverableStatus.APPROVED, DeliverableStatus.READY_TO_PUBLISH, DeliverableStatus.SCHEDULED_OR_PUBLISHED, DeliverableStatus.COMPLETE}:
+        if to_status in {"approved", "ready_to_publish", "scheduled_or_published", "complete"}:
             self._complete_open_window(deliverable.id, ReviewWindowType.CLIENT_REVIEW, now)
             self._complete_open_window(deliverable.id, ReviewWindowType.AMENDS, now)
 
@@ -339,7 +357,7 @@ class DeliverableWorkflowService:
             )
         )
 
-    def _apply_waiting_state_to_open_steps(self, deliverable_id: str, to_status: DeliverableStatus, now: datetime) -> None:
+    def _apply_waiting_state_to_open_steps(self, deliverable_id: str, to_status: str, now: datetime) -> None:
         open_steps = self.db.scalars(
             select(WorkflowStep).where(
                 WorkflowStep.linked_deliverable_id == deliverable_id,
@@ -349,21 +367,21 @@ class DeliverableWorkflowService:
         if not open_steps:
             return
 
-        if to_status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+        if to_status == "awaiting_internal_review":
             for step in open_steps:
                 step.waiting_on_type = WaitingOnType.INTERNAL
                 step.waiting_since = now
                 step.blocker_reason = "Awaiting internal review"
             return
 
-        if to_status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if to_status == "awaiting_client_review":
             for step in open_steps:
                 step.waiting_on_type = WaitingOnType.CLIENT
                 step.waiting_since = now
                 step.blocker_reason = "Awaiting client review"
             return
 
-        if to_status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+        if to_status == "client_changes_requested":
             for step in open_steps:
                 step.waiting_on_type = WaitingOnType.INTERNAL
                 step.waiting_since = now
@@ -380,26 +398,26 @@ class DeliverableWorkflowService:
     def _record_review_if_relevant(
         self,
         deliverable: Deliverable,
-        status: DeliverableStatus,
+        status: str,
         actor_user_id: str,
         comment: str | None,
     ) -> None:
-        if status in {DeliverableStatus.AWAITING_INTERNAL_REVIEW, DeliverableStatus.INTERNAL_REVIEW_COMPLETE}:
+        if status in {"awaiting_internal_review", "internal_review_complete"}:
             self.db.add(
                 Review(
                     display_id=self.public_ids.next_id(Review, "REV"),
                     deliverable_id=deliverable.id,
                     review_type="internal",
-                    status="complete" if status == DeliverableStatus.INTERNAL_REVIEW_COMPLETE else "pending",
+                    status="complete" if status == "internal_review_complete" else "pending",
                     reviewer_user_id=actor_user_id,
                     comments=comment,
                 )
             )
-        elif status in {DeliverableStatus.AWAITING_CLIENT_REVIEW, DeliverableStatus.CLIENT_CHANGES_REQUESTED, DeliverableStatus.APPROVED}:
+        elif status in {"awaiting_client_review", "client_changes_requested", "approved"}:
             review_status = "pending"
-            if status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+            if status == "client_changes_requested":
                 review_status = "changes_requested"
-            elif status == DeliverableStatus.APPROVED:
+            elif status == "approved":
                 review_status = "approved"
             self.db.add(
                 Review(

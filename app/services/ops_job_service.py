@@ -13,7 +13,6 @@ from app.models.domain import (
     CapacityLedger,
     Scope,
     Deliverable,
-    DeliverableStatus,
     DeliverableType,
     Escalation,
     ReviewWindow,

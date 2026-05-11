@@ -1199,6 +1199,14 @@ def _backfill_deliverable_sequence_and_operational_status(conn) -> None:
 
 
 def _ensure_new_indexes(conn) -> None:
+    inspector = inspect(conn)
+    table_columns: dict[str, set[str]] = {}
+
+    def has_column(table: str, column: str) -> bool:
+        if table not in table_columns:
+            table_columns[table] = {col["name"] for col in inspector.get_columns(table)}
+        return column in table_columns[table]
+
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_workflow_steps_planned_work_date ON workflow_steps(planned_work_date)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_workflow_steps_earliest_start_date ON workflow_steps(earliest_start_date)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_milestones_stage_id ON milestones(stage_id)"))
@@ -1206,7 +1214,11 @@ def _ensure_new_indexes(conn) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_deliverables_campaign_type_seq ON deliverables(campaign_id, deliverable_type, sequence_number)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_created_at ON campaigns(created_at)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_status_created_at ON campaigns(status, created_at)"))
-    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_scope_id ON campaigns(scope_id)"))
+    if has_column("campaigns", "scope_id"):
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_scope_id ON campaigns(scope_id)"))
+    elif has_column("campaigns", "deal_id"):
+        # Legacy DBs may still store the parent key as deal_id.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_deal_id ON campaigns(deal_id)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaign_assignments_campaign_id ON campaign_assignments(campaign_id)"))
 
 

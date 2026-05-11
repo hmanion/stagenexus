@@ -14,7 +14,6 @@ from app.models.domain import (
     Client,
     Scope,
     Deliverable,
-    DeliverableStatus,
     DeliverableType,
     GlobalHealth,
     GlobalStatus,
@@ -126,7 +125,6 @@ def test_campaign_workspace_still_returns_child_details(db_session):
         campaign_id=campaign.id,
         publication_id="pub-1",
         deliverable_type=DeliverableType.ARTICLE,
-        status=DeliverableStatus.IN_PROGRESS,
         title="Workspace Deliverable",
         current_start=date(2026, 1, 5),
         current_due=date(2026, 1, 20),
@@ -157,6 +155,7 @@ def test_campaign_workspace_still_returns_child_details(db_session):
 
     assert payload["campaign"]["id"] == campaign.display_id
     assert len(payload["deliverables"]["items"]) >= 1
+    assert payload["deliverables"]["items"][0]["current_step_name"] == "Workspace Step"
     assert len(payload["workflow_steps"]["items"]) >= 1
     assert len(payload["timeline"]["milestones"]) >= 1
 
@@ -229,7 +228,6 @@ def test_deliverable_transition_refreshes_parent_campaign_health(db_session):
         campaign_id=campaign.id,
         publication_id="pub-1",
         deliverable_type=DeliverableType.ARTICLE,
-        status=DeliverableStatus.PLANNED,
         title="Article",
         current_start=date(2026, 1, 5),
         current_due=date(2026, 1, 20),
@@ -239,7 +237,7 @@ def test_deliverable_transition_refreshes_parent_campaign_health(db_session):
 
     DeliverableWorkflowService(db_session).transition(
         deliverable=deliverable,
-        to_status=DeliverableStatus.IN_PROGRESS,
+        to_status="in_progress",
         actor_user_id="user-1",
         actor_roles={RoleName.CM},
     )

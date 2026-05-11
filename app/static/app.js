@@ -685,11 +685,10 @@ function statusChip(value) {
 }
 
 function deliverableStepPill(source) {
-  const stepId = String(source?.current_step_id || '').trim();
   const stepName = String(source?.current_step_name || '').trim();
   const displayStatus = String(source?.display_status || '').trim();
   const fallback = String(source?.status || source?.deliverable_status || 'not_started').trim();
-  const label = stepName || stepId || displayStatus || fallback;
+  const label = stepName || displayStatus || fallback;
   return `<span class="tag neutral">${escapeHtml(label)}</span>`;
 }
 
