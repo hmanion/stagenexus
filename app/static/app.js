@@ -688,7 +688,8 @@ function deliverableStepPill(source) {
   const stepName = String(source?.current_step_name || '').trim();
   const displayStatus = String(source?.display_status || '').trim();
   const fallback = String(source?.status || source?.deliverable_status || 'not_started').trim();
-  const label = stepName || displayStatus || fallback;
+  const statusText = statusLabel(displayStatus || fallback);
+  const label = stepName || statusText;
   return `<span class="tag neutral">${escapeHtml(label)}</span>`;
 }
 
