@@ -51,11 +51,11 @@ const PRODUCT_TIERS = ['bronze', 'silver', 'gold'];
 let roleFlagMatrix = null;
 let rolePermissionsEditableRoles = ['am', 'head_ops', 'cm', 'cc', 'dn', 'mm', 'admin', 'leadership_viewer', 'head_sales', 'client'];
 let CONTROL_ROLE_MAP = {
-  create_deal: ['am', 'admin'],
-  create_submit_deal: ['am', 'admin'],
-  create_demo_deal: ['am', 'admin'],
-  submit_latest_deal: ['am', 'admin'],
-  ops_approve_latest_deal: ['head_ops', 'admin'],
+  create_scope: ['am', 'admin'],
+  create_submit_scope: ['am', 'admin'],
+  create_demo_scope: ['am', 'admin'],
+  submit_latest_scope: ['am', 'admin'],
+  ops_approve_latest_scope: ['head_ops', 'admin'],
   generate_latest_campaigns: ['head_ops', 'admin'],
   complete_next_step: ['cm', 'cc', 'ccs', 'head_ops', 'admin'],
   override_step_due: ['cm', 'head_ops', 'admin'],
@@ -108,7 +108,7 @@ const APP_CONTROL_IDS = new Set([
   'admin_set_user_app_role_superadmin',
   'admin_remove_user',
 ]);
-const ROLE_FLAG_KEYS = ['show_deals_pipeline', 'show_capacity', 'show_risks', 'show_reviews', 'show_admin'];
+const ROLE_FLAG_KEYS = ['show_scopes_pipeline', 'show_capacity', 'show_risks', 'show_reviews', 'show_admin'];
 let productLineCount = 0;
 
 function canUseControl(controlId, role) {
@@ -544,7 +544,7 @@ let LIST_MODULE_BINDINGS = JSON.parse(JSON.stringify(DEFAULT_LIST_MODULE_BINDING
 const LIST_EXPANDED_ROW_KEYS = new Set();
 const LIST_ROWS_CACHE = {
   campaigns: [],
-  deals: [],
+  scopes: [],
 };
 const CAMPAIGN_WORKSPACE_CACHE = new Map();
 const CAMPAIGN_LIST_LOADING_KEYS = new Set();
@@ -890,7 +890,7 @@ function moduleCardOpenPath(moduleType, objectId, cardEl = null) {
   const type = String(moduleType || '').toLowerCase();
   const objId = String(objectId || '').trim();
   const campaignId = String((cardEl?.closest('.module-card')?.getAttribute('data-campaign-id') || cardEl?.getAttribute?.('data-campaign-id') || '')).trim();
-  if (type === 'scope') return screenPath('deals');
+  if (type === 'scope') return screenPath('scopes');
   if (type === 'campaign') {
     if (!objId) return screenPath('campaigns');
     return campaignsPathWithTarget({ targetType: 'campaign', targetId: objId, campaignId: objId });
@@ -1105,8 +1105,8 @@ function listRowPopoverPayload(row) {
     return {
       ...base,
       scope,
-      open_deep_link: screenPath('deals'),
-      open_path: screenPath('deals'),
+      open_deep_link: screenPath('scopes'),
+      open_path: screenPath('scopes'),
     };
   }
   if (moduleType === 'campaign') {
@@ -1372,7 +1372,7 @@ async function fetchObjectPanelPayload(moduleType, objectId, campaignId = '') {
     }
     if (type === 'scope') {
       const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
-      const data = await api(`/api/deals${actorQ}`);
+      const data = await api(`/api/scopes${actorQ}`);
       const scope = (data?.items || []).find(d => String(d?.id || '') === id);
       if (!scope) return null;
       return {
@@ -1380,8 +1380,8 @@ async function fetchObjectPanelPayload(moduleType, objectId, campaignId = '') {
         scope,
         children_items: scopeChildrenItems(scope),
         open_label: 'Open',
-        open_deep_link: screenPath('deals'),
-        open_path: screenPath('deals'),
+        open_deep_link: screenPath('scopes'),
+        open_path: screenPath('scopes'),
       };
     }
     if (type === 'campaign') {
@@ -1933,7 +1933,7 @@ function labelRole(role) {
 
 function labelRoleFlag(key) {
   const map = {
-    show_deals_pipeline: 'Scopes Screen',
+    show_scopes_pipeline: 'Scopes Screen',
     show_capacity: 'Capacity Screen',
     show_risks: 'Risks Screen',
     show_reviews: 'Reviews Screen',
@@ -1944,11 +1944,11 @@ function labelRoleFlag(key) {
 
 function labelControl(controlId) {
   const map = {
-    create_deal: 'Create Scope',
-    create_submit_deal: 'Create+Submit Scope',
-    create_demo_deal: 'Create Demo Scope',
-    submit_latest_deal: 'Submit Latest Scope',
-    ops_approve_latest_deal: 'Ops Approve Scope',
+    create_scope: 'Create Scope',
+    create_submit_scope: 'Create+Submit Scope',
+    create_demo_scope: 'Create Demo Scope',
+    submit_latest_scope: 'Submit Latest Scope',
+    ops_approve_latest_scope: 'Ops Approve Scope',
     generate_latest_campaigns: 'Generate Campaigns',
     complete_next_step: 'Complete Next Step',
     override_step_due: 'Override Step Due',
@@ -2037,7 +2037,7 @@ function isClientServicesLeadership() {
 }
 
 function canApproveScopes() {
-  return canUseControl('ops_approve_latest_deal', currentRole) || isSalesLeadership() || isClientServicesLeadership();
+  return canUseControl('ops_approve_latest_scope', currentRole) || isSalesLeadership() || isClientServicesLeadership();
 }
 
 function canGenerateScopeCampaigns() {
@@ -2048,7 +2048,7 @@ function screenPath(screen) {
   const map = {
     home: '/home',
     'my-work': '/my-work',
-    deals: '/scopes',
+    scopes: '/scopes',
     people: '/people',
     campaigns: '/campaigns',
     gantt: '/gantt',
@@ -2125,7 +2125,7 @@ function popoverOpenDeepLinkForPayload(payload = {}) {
 
 function screenFromPath(path) {
   if (path === '/my-work') return 'my-work';
-  if (path === '/deals' || path === '/scopes') return 'deals';
+  if (path === '/scopes' || path === '/scopes') return 'scopes';
   if (path === '/people') return 'people';
   if (path === '/campaigns' || path.startsWith('/campaigns/')) return 'campaigns';
   if (path === '/gantt') return 'gantt';
@@ -2145,7 +2145,7 @@ function campaignIdFromPath(path) {
 function canViewScreen(screen) {
   const flags = currentRoleFlags || {};
   if (screen === 'home' || screen === 'my-work' || screen === 'people' || screen === 'campaigns' || screen === 'gantt') return true;
-  if (screen === 'deals') return flags.show_deals_pipeline !== false;
+  if (screen === 'scopes') return flags.show_scopes_pipeline !== false;
   if (screen === 'reviews') return !!flags.show_reviews;
   if (screen === 'risks') return !!flags.show_risks;
   if (screen === 'capacity') return !!flags.show_capacity;
@@ -2166,7 +2166,7 @@ function renderNavActive() {
 }
 
 function applyScreenLayoutMode() {
-  const screens = ['home', 'my-work', 'deals', 'people', 'campaigns', 'gantt', 'reviews', 'risks', 'capacity', 'admin'];
+  const screens = ['home', 'my-work', 'scopes', 'people', 'campaigns', 'gantt', 'reviews', 'risks', 'capacity', 'admin'];
   screens.forEach(screen => {
     document.body.classList.toggle(`screen-${screen}`, currentScreen === screen);
   });
@@ -2641,8 +2641,8 @@ function objectPanelTeamRows(payload = {}) {
     const assigned = !!amUserId || amName !== '-';
     const canEditScopeAm = editMode
       && (
-        canUseControl('create_deal', currentRole)
-        || canUseControl('ops_approve_latest_deal', currentRole)
+        canUseControl('create_scope', currentRole)
+        || canUseControl('ops_approve_latest_scope', currentRole)
         || canUseControl('manage_campaign_assignments', currentRole)
       );
     const hiddenId = `panelTeamAssign_scope_${objectId || 'scope'}_am`;
@@ -2813,8 +2813,8 @@ function objectPanelScopeContentHtml(payload = {}) {
   const editMode = isModuleEditing('scope', objectId);
   const editable = editMode
     && (
-      canUseControl('create_deal', currentRole)
-      || canUseControl('ops_approve_latest_deal', currentRole)
+      canUseControl('create_scope', currentRole)
+      || canUseControl('ops_approve_latest_scope', currentRole)
       || canUseControl('manage_campaign_assignments', currentRole)
     );
   return [
@@ -3736,9 +3736,9 @@ function rerenderCurrentListFromCache() {
     requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('campaignsBody') || document));
     return true;
   }
-  if (screen === 'deals' || screen === 'scopes') {
-    renderListModule('dealsBody', LIST_ROWS_CACHE.deals || []);
-    requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('dealsBody') || document));
+  if (screen === 'scopes' || screen === 'scopes') {
+    renderListModule('scopesBody', LIST_ROWS_CACHE.scopes || []);
+    requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('scopesBody') || document));
     return true;
   }
   return false;
@@ -3788,9 +3788,9 @@ function updateListCachesForStatus(moduleType, objectId, newStatus, extras = {})
     }
   };
   for (const root of (LIST_ROWS_CACHE.campaigns || [])) visit(root);
-  for (const root of (LIST_ROWS_CACHE.deals || [])) visit(root);
+  for (const root of (LIST_ROWS_CACHE.scopes || [])) visit(root);
   for (const root of (LIST_ROWS_CACHE.campaigns || [])) recomputeListRowProgress(root);
-  for (const root of (LIST_ROWS_CACHE.deals || [])) recomputeListRowProgress(root);
+  for (const root of (LIST_ROWS_CACHE.scopes || [])) recomputeListRowProgress(root);
   return changed;
 }
 
@@ -4732,8 +4732,8 @@ function findCampaignRowInListRows(rows = [], campaignId = '') {
 }
 
 async function fetchUsers() {
-  const deals = await api('/api/deals');
-  if (deals.items.length === 0) return;
+  const scopes = await api('/api/scopes');
+  if (scopes.items.length === 0) return;
   // fallback path: if users not directly available from API, keep nulls and prompt to run init scripts.
 }
 
@@ -4767,19 +4767,19 @@ function populateViewAsUsers() {
   }
 }
 
-async function initDealForm() {
-  const publicationSelect = document.getElementById('dealPublication');
+async function initScopeForm() {
+  const publicationSelect = document.getElementById('scopePublication');
   const pubs = await api('/api/publications');
   publicationSelect.innerHTML = pubs.items.map(p => `<option value="${p.name}">${publicationLabel(p.name)}</option>`).join('');
 
   const today = isoDate(new Date());
-  document.getElementById('dealSowStart').value = today;
+  document.getElementById('scopeSowStart').value = today;
 
   const lines = document.getElementById('productLines');
   lines.innerHTML = '';
   productLineCount = 0;
   addProductLine();
-  recomputeDealEndDate();
+  recomputeScopeEndDate();
 }
 
 function productLineTemplate(index) {
@@ -4831,7 +4831,7 @@ function addProductLine() {
   productLineCount += 1;
   lines.insertAdjacentHTML('beforeend', productLineTemplate(productLineCount));
   onProductLineTypeChange(productLineCount);
-  recomputeDealEndDate();
+  recomputeScopeEndDate();
 }
 
 function removeProductLine(index) {
@@ -4843,7 +4843,7 @@ function removeProductLine(index) {
   }
   const target = lines.querySelector(`.line-item[data-line="${index}"]`);
   if (target) target.remove();
-  recomputeDealEndDate();
+  recomputeScopeEndDate();
 }
 
 function onProductLineTypeChange(index) {
@@ -4855,7 +4855,7 @@ function onProductLineTypeChange(index) {
   if (type === 'demand') {
     onDemandModuleModeChange(index);
   }
-  recomputeDealEndDate();
+  recomputeScopeEndDate();
 }
 
 function onDemandModuleModeChange(index) {
@@ -4915,7 +4915,7 @@ function addIsoDays(isoDate, days) {
   return `${yy}-${mm}-${dd}`;
 }
 
-function dealDurationMonthsFromLines() {
+function scopeDurationMonthsFromLines() {
   const rows = [...document.querySelectorAll('#productLines .line-item')];
   const productTypes = rows
     .map(row => row.querySelector('[data-field="product_type"]')?.value || '')
@@ -4925,13 +4925,13 @@ function dealDurationMonthsFromLines() {
   return 3;
 }
 
-function recomputeDealEndDate() {
-  const startEl = document.getElementById('dealSowStart');
-  const endEl = document.getElementById('dealSowEnd');
+function recomputeScopeEndDate() {
+  const startEl = document.getElementById('scopeSowStart');
+  const endEl = document.getElementById('scopeSowEnd');
   if (!startEl || !endEl) return;
   const startDate = startEl.value;
   if (!startDate) return;
-  const months = dealDurationMonthsFromLines();
+  const months = scopeDurationMonthsFromLines();
   const boundary = addCalendarMonths(startDate, months);
   if (!boundary) return;
   const computed = months === 3 ? addIsoDays(boundary, -1) : boundary;
@@ -4971,7 +4971,7 @@ function collectContacts() {
 }
 
 function collectAttachments() {
-  const fileName = document.getElementById('dealAttachment').value.trim();
+  const fileName = document.getElementById('scopeAttachment').value.trim();
   if (!fileName) return [];
   const safeName = fileName.replaceAll(' ', '_');
   return [{ file_name: fileName, storage_key: `intake/${Date.now()}_${safeName}` }];
@@ -5101,8 +5101,8 @@ function scopeModuleCard(scope, opts = {}) {
   const canEditScopeDetails = panelMode
     && editMode
     && (
-      canUseControl('create_deal', currentRole)
-      || canUseControl('ops_approve_latest_deal', currentRole)
+      canUseControl('create_scope', currentRole)
+      || canUseControl('ops_approve_latest_scope', currentRole)
       || canUseControl('manage_campaign_assignments', currentRole)
     );
   const clientNameInputId = `panelScopeClientName_${scopeObjId || 'scope'}`;
@@ -5210,7 +5210,7 @@ async function renderSummary() {
     kpiCard('At Risk', s.open_system_risks, 'system flags'),
     kpiCard('Team Capacity', s.over_capacity_rows, 'rows over weekly cap'),
     kpiCard('On Track', s.ready_to_publish, 'ready to publish'),
-    kpiCard('Scopes', s.deals_total, `${s.deals_readiness_passed} readiness passed`),
+    kpiCard('Scopes', s.scopes_total, `${s.scopes_readiness_passed} readiness passed`),
     kpiCard('Deliverables', s.deliverables_total, `${s.awaiting_client_review} in client review`),
     kpiCard('Open Steps', s.workflow_steps_open, `${s.workflow_steps_due_tracked} with due dates`),
     kpiCard('Open Escalations', s.open_escalations, 'needs leadership visibility'),
@@ -5371,9 +5371,9 @@ function renderListModule(containerId, rows = []) {
   body.innerHTML = `<div class='list-module'>${(rows || []).map(row => listRowHtml(row, 0)).join('') || "<div class='sub'>No items.</div>"}</div>`;
 }
 
-async function renderDeals() {
+async function renderScopes() {
   const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
-  const data = await api(`/api/deals${actorQ}`);
+  const data = await api(`/api/scopes${actorQ}`);
   const productFilter = getFilterValue('qProducts') || 'all';
   const scopeHealthFilter = getFilterValue('qScopeHealth') || 'all';
   const selectedUserIds = selectedUserFilterSet();
@@ -5390,9 +5390,9 @@ async function renderDeals() {
   });
   const workspaceMap = Object.fromEntries(Array.from(CAMPAIGN_WORKSPACE_CACHE.entries()));
   const rows = buildScopeListRows(items, workspaceMap);
-  LIST_ROWS_CACHE.deals = rows;
-  renderListModule('dealsBody', rows);
-  document.getElementById('dealsCount').textContent = `${items.length} shown / ${data.items.length} total`;
+  LIST_ROWS_CACHE.scopes = rows;
+  renderListModule('scopesBody', rows);
+  document.getElementById('scopesCount').textContent = `${items.length} shown / ${data.items.length} total`;
   return data.items;
 }
 
@@ -5587,12 +5587,12 @@ async function ensureCampaignChildrenLoaded(campaignId, parentScreen = 'campaign
   const id = String(campaignId || '').trim();
   if (!id) return null;
   if (CAMPAIGN_WORKSPACE_CACHE.has(id)) return CAMPAIGN_WORKSPACE_CACHE.get(id);
-  const cacheRows = parentScreen === 'deals' ? LIST_ROWS_CACHE.deals : LIST_ROWS_CACHE.campaigns;
+  const cacheRows = parentScreen === 'scopes' ? LIST_ROWS_CACHE.scopes : LIST_ROWS_CACHE.campaigns;
   const campaignRow = findCampaignRowInListRows(cacheRows, id);
   if (!campaignRow) return null;
   campaignRow.is_loading_children = true;
   CAMPAIGN_LIST_LOADING_KEYS.add(rowKeyFor('campaign', id));
-  renderListModule(parentScreen === 'deals' ? 'dealsBody' : 'campaignsBody', cacheRows);
+  renderListModule(parentScreen === 'scopes' ? 'scopesBody' : 'campaignsBody', cacheRows);
   const ws = await api(`/api/campaigns/${encodeURIComponent(id)}/workspace`);
   CAMPAIGN_WORKSPACE_CACHE.set(id, ws);
   const patchRows = buildCampaignRows([{
@@ -5610,7 +5610,7 @@ async function ensureCampaignChildrenLoaded(campaignId, parentScreen = 'campaign
   campaignRow.has_lazy_children = false;
   campaignRow.is_loading_children = false;
   CAMPAIGN_LIST_LOADING_KEYS.delete(rowKeyFor('campaign', id));
-  renderListModule(parentScreen === 'deals' ? 'dealsBody' : 'campaignsBody', cacheRows);
+  renderListModule(parentScreen === 'scopes' ? 'scopesBody' : 'campaignsBody', cacheRows);
   return ws;
 }
 
@@ -5629,12 +5629,12 @@ function toggleListRow(rowKey) {
     requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('campaignsBody') || document));
     return;
   }
-  if ((screen === 'deals' || screen === 'scopes') && Array.isArray(LIST_ROWS_CACHE.deals) && LIST_ROWS_CACHE.deals.length) {
+  if ((screen === 'scopes' || screen === 'scopes') && Array.isArray(LIST_ROWS_CACHE.scopes) && LIST_ROWS_CACHE.scopes.length) {
     if (moduleType === 'campaign' && LIST_EXPANDED_ROW_KEYS.has(key)) {
-      ensureCampaignChildrenLoaded(objectId, 'deals').catch(err => toast(`Failed to load campaign details: ${String(err)}`, 'error'));
+      ensureCampaignChildrenLoaded(objectId, 'scopes').catch(err => toast(`Failed to load campaign details: ${String(err)}`, 'error'));
     }
-    renderListModule('dealsBody', LIST_ROWS_CACHE.deals);
-    requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('dealsBody') || document));
+    renderListModule('scopesBody', LIST_ROWS_CACHE.scopes);
+    requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('scopesBody') || document));
     return;
   }
   renderScreen().catch(err => log('List row toggle failed', String(err)));
@@ -7932,7 +7932,7 @@ async function renderObjectRelationships() {
               <table>
                 <thead><tr><th>Object</th><th>Parent</th><th>Children</th></tr></thead>
                 <tbody>
-                  <tr><td>Scope (Deal)</td><td>-</td><td>Campaigns, Product Lines, Attachments, Contacts</td></tr>
+                  <tr><td>Scope (Scope)</td><td>-</td><td>Campaigns, Product Lines, Attachments, Contacts</td></tr>
                   <tr><td>Campaign</td><td>Scope</td><td>Deliverables, Workflow Steps (campaign-owned), Milestones, Assignments, Product Modules</td></tr>
                   <tr><td>Stage (logical)</td><td>Campaign</td><td>Workflow Steps (grouped by stage)</td></tr>
                   <tr><td>Deliverable</td><td>Campaign</td><td>Workflow Steps (deliverable-owned)</td></tr>
@@ -8162,8 +8162,8 @@ function objectPanelIsEditing(payload = {}) {
 function objectPanelCanSave(meta = {}) {
   const type = String(meta.type || '').toLowerCase();
   if (type === 'scope') {
-    return canUseControl('create_deal', currentRole)
-      || canUseControl('ops_approve_latest_deal', currentRole)
+    return canUseControl('create_scope', currentRole)
+      || canUseControl('ops_approve_latest_scope', currentRole)
       || canUseControl('manage_campaign_assignments', currentRole);
   }
   if (type === 'stage') {
@@ -9769,8 +9769,8 @@ async function renderScreen() {
       await renderMyWork(currentRole, currentActorId);
       return;
     }
-    if (screen === 'deals') {
-      await renderDeals();
+    if (screen === 'scopes') {
+      await renderScopes();
       return;
     }
     if (screen === 'people') {
@@ -9844,7 +9844,7 @@ function applyRoleVisibility() {
   const screenSections = {
     home: ['sectionControls', 'kpis', 'sectionMyWork'],
     'my-work': ['sectionControls', 'sectionMyWork'],
-    deals: ['sectionControls', 'sectionActions', 'sectionDeals'],
+    scopes: ['sectionControls', 'sectionActions', 'sectionScopes'],
     people: ['sectionPeople'],
     campaigns: ['sectionControls', 'sectionCampaigns'],
     gantt: ['sectionControls', 'sectionGantt'],
@@ -9859,7 +9859,7 @@ function applyRoleVisibility() {
     'sectionNotAllowed',
     'sectionMyWork',
     'sectionActions',
-    'sectionDeals',
+    'sectionScopes',
     'sectionPeople',
     'sectionCampaigns',
     'sectionGantt',
@@ -9890,8 +9890,8 @@ function applyRoleVisibility() {
   }
   const allowed = new Set(screenSections[currentScreen] || []);
   const map = all.map(id => [id, allowed.has(id)]);
-  if (currentScreen === 'deals' && flags.show_deals_pipeline === false) {
-    map.push(['sectionDeals', false]);
+  if (currentScreen === 'scopes' && flags.show_scopes_pipeline === false) {
+    map.push(['sectionScopes', false]);
   }
   if (currentScreen === 'risks' && !flags.show_risks) {
     map.push(['sectionSystemRisks', false], ['sectionHealthWarnings', false], ['sectionRiskConsole', false]);
@@ -9899,7 +9899,7 @@ function applyRoleVisibility() {
   if (currentScreen === 'capacity' && !flags.show_capacity) {
     map.push(['sectionCapacity', false]);
   }
-  if (!canUseControl('create_deal', currentRole)) {
+  if (!canUseControl('create_scope', currentRole)) {
     map.push(['sectionActions', false]);
   }
   if (!flags.show_risks && currentScreen === 'risks') {
@@ -9923,7 +9923,7 @@ function setFilterPairVisibility(selectId, visible) {
 
 function applyQuickFilterVisibility() {
   const screen = String(currentScreen || '').toLowerCase();
-  setFilterPairVisibility('qScopeHealth', screen === 'deals');
+  setFilterPairVisibility('qScopeHealth', screen === 'scopes');
   setFilterPairVisibility('qCampaignHealth', screen === 'campaigns');
 }
 
@@ -10009,18 +10009,18 @@ async function getDemoUsers() {
   return resolved;
 }
 
-function buildDealPayload() {
+function buildScopePayload() {
   const actorId = String(currentActorId || '').trim();
   if (!actorId) throw new Error('No active actor selected');
   const payload = {
-    client_name: document.getElementById('dealClientName').value.trim(),
-    brand_publication: document.getElementById('dealPublication').value,
+    client_name: document.getElementById('scopeClientName').value.trim(),
+    brand_publication: document.getElementById('scopePublication').value,
     am_user_id: actorId,
-    sow_start_date: document.getElementById('dealSowStart').value,
-    sow_end_date: document.getElementById('dealSowEnd').value,
-    icp: document.getElementById('dealICP').value.trim(),
-    campaign_objective: document.getElementById('dealObjective').value.trim(),
-    messaging_positioning: document.getElementById('dealMessaging').value.trim(),
+    sow_start_date: document.getElementById('scopeSowStart').value,
+    sow_end_date: document.getElementById('scopeSowEnd').value,
+    icp: document.getElementById('scopeICP').value.trim(),
+    campaign_objective: document.getElementById('scopeObjective').value.trim(),
+    messaging_positioning: document.getElementById('scopeMessaging').value.trim(),
     client_contacts: collectContacts(),
     attachments: collectAttachments(),
     product_lines: collectProductLines(),
@@ -10034,13 +10034,13 @@ function buildDealPayload() {
   return payload;
 }
 
-async function submitNewDeal(event) {
+async function submitNewScope(event) {
   if (event) event.preventDefault();
   try {
     const actorId = String(currentActorId || '').trim();
     if (!actorId) throw new Error('No active actor selected');
-    const payload = buildDealPayload();
-    const result = await api(`/api/deals?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
+    const payload = buildScopePayload();
+    const result = await api(`/api/scopes?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
     log('Scope created', result);
     toast(`Created ${result.id}`, 'success');
     await refreshAll();
@@ -10049,13 +10049,13 @@ async function submitNewDeal(event) {
   }
 }
 
-async function submitAndRouteLatestDeal() {
+async function submitAndRouteLatestScope() {
   try {
     const actorId = String(currentActorId || '').trim();
     if (!actorId) throw new Error('No active actor selected');
-    const payload = buildDealPayload();
-    const created = await api(`/api/deals?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
-    const submitted = await api(`/api/deals/${created.id}/submit?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST' });
+    const payload = buildScopePayload();
+    const created = await api(`/api/scopes?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST', body: JSON.stringify(payload) });
+    const submitted = await api(`/api/scopes/${created.id}/submit?actor_user_id=${encodeURIComponent(actorId)}`, { method: 'POST' });
     log('Scope created + submitted', submitted);
     toast(`Submitted ${submitted.id} to Ops`, 'success');
     await refreshAll();
@@ -10064,7 +10064,7 @@ async function submitAndRouteLatestDeal() {
   }
 }
 
-async function createDemoDeal() {
+async function createDemoScope() {
   try {
     const payload = {
       client_name: 'UI Demo Client',
@@ -10080,17 +10080,17 @@ async function createDemoDeal() {
       product_lines: [{ product_type: 'demand', tier: 'silver', options_json: {} }],
     };
     const u = await getDemoUsers();
-    const result = await api(`/api/deals?actor_user_id=${u.am}`, { method: 'POST', body: JSON.stringify(payload) });
-    await api(`/api/deals/${result.id}/submit?actor_user_id=${u.am}`, { method: 'POST' });
+    const result = await api(`/api/scopes?actor_user_id=${u.am}`, { method: 'POST', body: JSON.stringify(payload) });
+    await api(`/api/scopes/${result.id}/submit?actor_user_id=${u.am}`, { method: 'POST' });
     log('Scope created', result);
     await refreshAll();
   } catch (err) { log('Create scope failed', String(err)); }
 }
 
-async function latestDealId() {
-  const deals = await api('/api/deals');
-  if (!deals.items.length) throw new Error('No scopes found. Create a demo scope first.');
-  return deals.items[0].id;
+async function latestScopeId() {
+  const scopes = await api('/api/scopes');
+  if (!scopes.items.length) throw new Error('No scopes found. Create a demo scope first.');
+  return scopes.items[0].id;
 }
 
 function firstUserIdForTeam(team) {
@@ -10120,7 +10120,7 @@ async function approveScope(scopeId) {
       }),
     });
     toast(`Scope ${scopeId} approved`, 'success');
-    await Promise.all([renderDeals(), renderSummary(), renderCampaigns()]);
+    await Promise.all([renderScopes(), renderSummary(), renderCampaigns()]);
   } catch (err) {
     toast(`Scope approval failed: ${String(err)}`, 'error');
     log('Scope approval failed', String(err));
@@ -10135,39 +10135,39 @@ async function generateCampaignsForScope(scopeId) {
       method: 'POST',
     });
     toast(`Campaigns generated for ${scopeId}`, 'success');
-    await Promise.all([renderDeals(), renderCampaigns(), renderSummary()]);
+    await Promise.all([renderScopes(), renderCampaigns(), renderSummary()]);
   } catch (err) {
     toast(`Campaign generation failed: ${String(err)}`, 'error');
     log('Scope campaign generation failed', String(err));
   }
 }
 
-async function submitLatestDeal() {
+async function submitLatestScope() {
   try {
     const u = await getDemoUsers();
-    const dealId = await latestDealId();
-    const result = await api(`/api/deals/${dealId}/submit?actor_user_id=${u.am}`, { method: 'POST' });
+    const scopeId = await latestScopeId();
+    const result = await api(`/api/scopes/${scopeId}/submit?actor_user_id=${u.am}`, { method: 'POST' });
     log('Scope submitted', result);
     await refreshAll();
   } catch (err) { log('Submit failed', String(err)); }
 }
 
-async function opsApproveLatestDeal() {
+async function opsApproveLatestScope() {
   try {
     const u = await getDemoUsers();
-    const dealId = await latestDealId();
+    const scopeId = await latestScopeId();
     const payload = { head_ops_user_id: u.ops, cm_user_id: u.cm, cc_user_id: u.cc };
-    const result = await api(`/api/deals/${dealId}/ops-approve?actor_user_id=${u.ops}`, { method: 'POST', body: JSON.stringify(payload) });
+    const result = await api(`/api/scopes/${scopeId}/ops-approve?actor_user_id=${u.ops}`, { method: 'POST', body: JSON.stringify(payload) });
     log('Ops approve complete', result);
     await refreshAll();
   } catch (err) { log('Ops approve failed', String(err)); }
 }
 
-async function generateLatestDealCampaigns() {
+async function generateLatestScopeCampaigns() {
   try {
     const u = await getDemoUsers();
-    const dealId = await latestDealId();
-    const result = await api(`/api/deals/${dealId}/generate-campaigns?actor_user_id=${u.ops}`, { method: 'POST' });
+    const scopeId = await latestScopeId();
+    const result = await api(`/api/scopes/${scopeId}/generate-campaigns?actor_user_id=${u.ops}`, { method: 'POST' });
     log('Campaigns generated', result);
     await refreshAll();
   } catch (err) { log('Generation failed', String(err)); }
@@ -10396,7 +10396,7 @@ async function bootstrapApp() {
     return;
   }
 
-  await initDealForm();
+  await initScopeForm();
   await loadUsersDirectory();
   const roleSelect = document.getElementById('roleMode');
   if (savedViewAs && roleSelect && [...roleSelect.options].some(o => o.value === savedViewAs)) {

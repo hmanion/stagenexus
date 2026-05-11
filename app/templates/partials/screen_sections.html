@@ -85,15 +85,15 @@
         <summary>Scope Form</summary>
         <article>
           <p class='sub'>Capture commercial details and submit to Ops for triage.</p>
-          <form id='dealForm' onsubmit='submitNewDeal(event)'>
+          <form id='scopeForm' onsubmit='submitNewScope(event)'>
             <div class='form-grid'>
               <div class='field'>
-                <label for='dealClientName'>Client</label>
-                <input id='dealClientName' required placeholder='Client name' />
+                <label for='scopeClientName'>Client</label>
+                <input id='scopeClientName' required placeholder='Client name' />
               </div>
               <div class='field'>
-                <label for='dealPublication'>Brand / Publication</label>
-                <select id='dealPublication' required></select>
+                <label for='scopePublication'>Brand / Publication</label>
+                <select id='scopePublication' required></select>
               </div>
               <div class='field full'>
                 <label>Product Lines</label>
@@ -103,24 +103,24 @@
                 </div>
               </div>
               <div class='field'>
-                <label for='dealSowStart'>SOW Start</label>
-                <input id='dealSowStart' type='date' required onchange='recomputeDealEndDate()' />
+                <label for='scopeSowStart'>SOW Start</label>
+                <input id='scopeSowStart' type='date' required onchange='recomputeScopeEndDate()' />
               </div>
               <div class='field'>
-                <label for='dealSowEnd'>SOW End</label>
-                <input id='dealSowEnd' type='date' required />
+                <label for='scopeSowEnd'>SOW End</label>
+                <input id='scopeSowEnd' type='date' required />
               </div>
               <div class='field full'>
-                <label for='dealICP'>ICP</label>
-                <textarea id='dealICP' required placeholder='Ideal customer profile'></textarea>
+                <label for='scopeICP'>ICP</label>
+                <textarea id='scopeICP' required placeholder='Iscope customer profile'></textarea>
               </div>
               <div class='field full'>
-                <label for='dealObjective'>Campaign Objective</label>
-                <textarea id='dealObjective' required placeholder='Primary objective'></textarea>
+                <label for='scopeObjective'>Campaign Objective</label>
+                <textarea id='scopeObjective' required placeholder='Primary objective'></textarea>
               </div>
               <div class='field full'>
-                <label for='dealMessaging'>Messaging / Positioning</label>
-                <textarea id='dealMessaging' required placeholder='Core narrative and positioning'></textarea>
+                <label for='scopeMessaging'>Messaging / Positioning</label>
+                <textarea id='scopeMessaging' required placeholder='Core narrative and positioning'></textarea>
               </div>
               <div class='field'>
                 <label for='contactName'>Client Contact Name</label>
@@ -131,25 +131,25 @@
                 <input id='contactEmail' type='email' placeholder='contact@example.com' />
               </div>
               <div class='field full'>
-                <label for='dealAttachment'>SOW Attachment (metadata for now)</label>
-                <input id='dealAttachment' placeholder='SOW.pdf' />
+                <label for='scopeAttachment'>SOW Attachment (metadata for now)</label>
+                <input id='scopeAttachment' placeholder='SOW.pdf' />
               </div>
             </div>
             <div class='actions'>
-              <button class='primary' data-control='create_deal' type='submit'>Create Scope</button>
-              <button type='button' data-control='create_submit_deal' onclick='submitAndRouteLatestDeal()'>Create Scope + Submit to Ops</button>
+              <button class='primary' data-control='create_scope' type='submit'>Create Scope</button>
+              <button type='button' data-control='create_submit_scope' onclick='submitAndRouteLatestScope()'>Create Scope + Submit to Ops</button>
             </div>
           </form>
         </article>
       </details>
     </section>
 
-    <section class='card' id='sectionDeals'>
+    <section class='card' id='sectionScopes'>
       <div class='section-head'>
         <h3>Scopes</h3>
-        <span id='dealsCount' class='muted'></span>
+        <span id='scopesCount' class='muted'></span>
       </div>
-      <div id='dealsBody' class='queue-list'></div>
+      <div id='scopesBody' class='queue-list'></div>
     </section>
 
     <section class='card' id='sectionPeople'>

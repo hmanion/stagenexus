@@ -177,7 +177,7 @@ There is some mismatch in naming across documents.
 - It becomes harder to reason about reporting and permissions when core concepts are not described consistently.
 
 **Evidence**
-- Implementation notes describe `Deal -> Campaign -> Sprint -> Module -> Deliverable -> Workflow Step`. fileciteturn2file1L3-L10
+- Implementation notes describe `Scope -> Campaign -> Sprint -> Module -> Deliverable -> Workflow Step`. fileciteturn2file1L3-L10
 - Working context uses `Scope -> Campaign -> Stage -> Step` and states stages are first-class objects. fileciteturn2file2L4-L5
 
 **What needs to change**

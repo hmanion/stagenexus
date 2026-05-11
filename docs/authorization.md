@@ -22,7 +22,7 @@ This document maps mutable and sensitive-read API endpoints to centralized autho
 
 - `GET /api/publications`
 - `GET /api/campaigns`
-- `GET /api/deals` (`/api/scopes` alias)
+- `GET /api/scopes` (`/api/scopes` alias)
 - `GET /api/workflow-steps`
 - `GET /api/milestones`
 - `GET /api/dashboard/summary`
@@ -44,7 +44,7 @@ This document maps mutable and sensitive-read API endpoints to centralized autho
 
 ### Mutable standard
 
-- Deal/scope edits: AM, content, timeframe
+- Scope/scope edits: AM, content, timeframe
 - Campaign assignment/status/date edits
 - Workflow step complete/manage
 - Deliverable transition/date/stage/owner updates
@@ -62,8 +62,8 @@ This document maps mutable and sensitive-read API endpoints to centralized autho
 
 ### Approval/state-transition critical
 
-- Deal ops approval
-- Campaign generation from approved deal
+- Scope ops approval
+- Campaign generation from approved scope
 - SOW change request create + decision + activation
 - Ready-to-publish transition
 - Campaign descendant status cascade
@@ -73,11 +73,11 @@ This document maps mutable and sensitive-read API endpoints to centralized autho
 
 Action | Allowed actors | Ownership rule | Notes
 --- | --- | --- | ---
-Create deal/scope | `AM`, `ADMIN` | `am_user_id` must equal actor unless admin | `POST /api/deals`
-Update protected deal fields | deal owner (`am_user_id`) or `{ADMIN, HEAD_OPS, HEAD_SALES}` | Non-owner blocked | AM/content/timeframe/delete handlers
-Submit deal | deal owner or `{ADMIN, HEAD_OPS}` | Owner-or-privileged | `POST /api/deals/{id}/submit`
-Ops approve deal | control `approve_scope` or `{HEAD_OPS, ADMIN}` (legacy leadership fallback) | N/A | `POST /ops-approve`
-Generate campaigns | control `generate_latest_campaigns` or `{HEAD_OPS, ADMIN}` (legacy leadership fallback) | Deal must be `READINESS_PASSED` | `POST /generate-campaigns`
+Create scope/scope | `AM`, `ADMIN` | `am_user_id` must equal actor unless admin | `POST /api/scopes`
+Update protected scope fields | scope owner (`am_user_id`) or `{ADMIN, HEAD_OPS, HEAD_SALES}` | Non-owner blocked | AM/content/timeframe/delete handlers
+Submit scope | scope owner or `{ADMIN, HEAD_OPS}` | Owner-or-privileged | `POST /api/scopes/{id}/submit`
+Ops approve scope | control `approve_scope` or `{HEAD_OPS, ADMIN}` (legacy leadership fallback) | N/A | `POST /ops-approve`
+Generate campaigns | control `generate_latest_campaigns` or `{HEAD_OPS, ADMIN}` (legacy leadership fallback) | Scope must be `READINESS_PASSED` | `POST /generate-campaigns`
 Manage campaign assignments | control `manage_campaign_assignments` or `manage_step` fallback set | Campaign scope | Assignment pool team constraints enforced
 Update campaign status/dates | control `manage_campaign_status`/`manage_campaign_dates` with fallback `{CM, HEAD_OPS, ADMIN}` | Campaign scope | Actor captured in activity log
 Cascade campaign descendant status | same as campaign status | Campaign scope | explicit confirmation phrase required
@@ -95,7 +95,7 @@ Admin reference changes | controls under `admin_*` app controls | N/A | enforced
 
 Currently captured for sensitive transitions where model fields/logging exist:
 
-- ops approval (deal service path)
+- ops approval (scope service path)
 - campaign generation (activity/state path)
 - publish readiness (`ready_to_publish_by_user_id`, timestamp)
 - SOW decisions (`approver_user_id`, role, status)

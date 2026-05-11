@@ -11,7 +11,7 @@ from app.models.domain import (
     ActivityLog,
     Campaign,
     CampaignType,
-    Deal,
+    Scope,
     Deliverable,
     Milestone,
     ReviewWindow,
@@ -85,16 +85,16 @@ def _realign() -> ShiftStats:
 
         grouped: dict[tuple[str, str], list[Campaign]] = defaultdict(list)
         for c in demand_sprint_campaigns:
-            grouped[(c.deal_id, _product_code_from_campaign_id(c.display_id))].append(c)
+            grouped[(c.scope_id, _product_code_from_campaign_id(c.display_id))].append(c)
 
-        for (deal_id, product_code), campaigns in grouped.items():
-            deal = db.get(Deal, deal_id)
+        for (scope_id, product_code), campaigns in grouped.items():
+            scope = db.get(Scope, scope_id)
             campaigns_sorted = sorted(campaigns, key=lambda c: int(c.demand_sprint_number or 999))
             if not campaigns_sorted:
                 continue
 
             sprint1 = campaigns_sorted[0]
-            sprint1_anchor = _kickoff_anchor(sprint1.id, milestones_by_campaign) or deal.sow_start_date or date.today()
+            sprint1_anchor = _kickoff_anchor(sprint1.id, milestones_by_campaign) or scope.sow_start_date or date.today()
             sprint1_anchor = calendar.next_working_day_on_or_after(sprint1_anchor)
 
             for campaign in campaigns_sorted:
@@ -102,7 +102,7 @@ def _realign() -> ShiftStats:
                 target_anchor = calendar.next_working_day_on_or_after(
                     sprint1_anchor + timedelta(days=(sprint_num - 1) * 90)
                 )
-                current_anchor = _kickoff_anchor(campaign.id, milestones_by_campaign) or deal.sow_start_date or target_anchor
+                current_anchor = _kickoff_anchor(campaign.id, milestones_by_campaign) or scope.sow_start_date or target_anchor
                 delta_days = (target_anchor - current_anchor).days
                 if delta_days == 0:
                     continue
@@ -152,7 +152,7 @@ def _realign() -> ShiftStats:
                         action="demand_sprint_reanchored_90_day",
                         meta_json={
                             "campaign_id": campaign.display_id,
-                            "deal_id": deal.display_id if deal else None,
+                            "scope_id": scope.display_id if scope else None,
                             "product_code": product_code,
                             "sprint_number": sprint_num,
                             "old_anchor": current_anchor.isoformat() if current_anchor else None,

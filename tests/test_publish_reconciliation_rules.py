@@ -8,8 +8,8 @@ import pytest
 from app.models.domain import (
     Campaign,
     CampaignType,
-    Deal,
-    DealStatus,
+    Scope,
+    ScopeStatus,
     Deliverable,
     DeliverableStatus,
     DeliverableType,
@@ -30,12 +30,12 @@ from app.services.stage_integrity_service import StageIntegrityService
 def _seed_campaign_with_basics(db_session):
     publication = Publication(name=PublicationName.UC_TODAY)
     template = TemplateVersion(display_id="TPL-2026-0001", name="demand", version=1, workflow_json={})
-    deal = Deal(
-        display_id="DEAL-001",
+    scope = Scope(
+        display_id="SCOPE-001",
         client_id="client-1",
         am_user_id="am-1",
         brand_publication=PublicationName.UC_TODAY,
-        status=DealStatus.READINESS_PASSED,
+        status=ScopeStatus.READINESS_PASSED,
         sow_start_date=date(2026, 1, 5),
         sow_end_date=date(2026, 4, 5),
         icp="ICP",
@@ -43,12 +43,12 @@ def _seed_campaign_with_basics(db_session):
         messaging_positioning="Message",
         readiness_passed=True,
     )
-    db_session.add_all([publication, template, deal])
+    db_session.add_all([publication, template, scope])
     db_session.flush()
 
     campaign = Campaign(
         display_id="CAMP-2026-0001",
-        deal_id=deal.id,
+        scope_id=scope.id,
         template_version_id=template.id,
         campaign_type=CampaignType.DEMAND,
         tier="gold",

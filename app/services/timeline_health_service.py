@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.domain import (
     Campaign,
     CampaignAssignment,
-    Deal,
+    Scope,
     Deliverable,
     DeliverableStage,
     GlobalHealth,
@@ -222,10 +222,10 @@ class TimelineHealthService:
                 )
         return evaluation, derived_stage
 
-    def evaluate_scope(self, deal: Deal, campaigns_data: list[tuple[Campaign, HealthEvaluation]]) -> HealthEvaluation:
+    def evaluate_scope(self, scope: Scope, campaigns_data: list[tuple[Campaign, HealthEvaluation]]) -> HealthEvaluation:
         child_health = [h.health for _, h in campaigns_data]
-        start = deal.sow_start_date
-        due = deal.sow_end_date
+        start = scope.sow_start_date
+        due = scope.sow_end_date
         status = "done" if campaigns_data and all(h.health == "on_track" for _, h in campaigns_data) and date.today() > (due or date.today()) else "in_progress"
         return self._evaluate_window(
             object_type="scope",

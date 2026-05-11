@@ -82,7 +82,7 @@ class AppAccessRole(enum.StrEnum):
     SUPERADMIN = "superadmin"
 
 
-class DealStatus(enum.StrEnum):
+class ScopeStatus(enum.StrEnum):
     DRAFT = "draft"
     SUBMITTED = "submitted"
     OPS_REVIEW = "ops_review"
@@ -97,6 +97,10 @@ class CampaignType(enum.StrEnum):
     AMPLIFY = "amplify"
     RESPONSE = "response"
     DISPLAY_ONLY = "display_only"
+    TAKEOVER = "takeover"
+    CUSTOM = "custom"
+    SCALEUP = "scale_up"
+    VISIBILITY = "visibility_bundle"
 
 
 class PublicationName(enum.StrEnum):
@@ -118,19 +122,6 @@ class DeliverableType(enum.StrEnum):
     EMAIL = "email"
     LEAD_TOTAL = "lead_total"
     DISPLAY_ASSET = "display_asset"
-
-
-class DeliverableStatus(enum.StrEnum):
-    PLANNED = "planned"
-    IN_PROGRESS = "in_progress"
-    AWAITING_INTERNAL_REVIEW = "awaiting_internal_review"
-    INTERNAL_REVIEW_COMPLETE = "internal_review_complete"
-    AWAITING_CLIENT_REVIEW = "awaiting_client_review"
-    CLIENT_CHANGES_REQUESTED = "client_changes_requested"
-    APPROVED = "approved"
-    READY_TO_PUBLISH = "ready_to_publish"
-    SCHEDULED_OR_PUBLISHED = "scheduled_or_published"
-    COMPLETE = "complete"
 
 
 class WaitingOnType(enum.StrEnum):
@@ -261,15 +252,15 @@ class ClientContact(Base, TimestampMixin):
     title: Mapped[str | None] = mapped_column(String(255))
 
 
-class Deal(Base, TimestampMixin):
-    __tablename__ = "deals"
+class Scope(Base, TimestampMixin):
+    __tablename__ = "scopes"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     display_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     client_id: Mapped[str] = mapped_column(ForeignKey("clients.id"), nullable=False)
     am_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     brand_publication: Mapped[PublicationName] = mapped_column(Enum(PublicationName), nullable=False)
-    status: Mapped[DealStatus] = mapped_column(Enum(DealStatus), default=DealStatus.DRAFT, nullable=False)
+    status: Mapped[ScopeStatus] = mapped_column(Enum(ScopeStatus), default=ScopeStatus.DRAFT, nullable=False)
     sow_start_date: Mapped[date | None] = mapped_column(Date)
     sow_end_date: Mapped[date | None] = mapped_column(Date)
     icp: Mapped[str | None] = mapped_column(Text)
@@ -283,21 +274,21 @@ class Deal(Base, TimestampMixin):
     assigned_ccs_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
 
 
-class DealProductLine(Base, TimestampMixin):
-    __tablename__ = "deal_product_lines"
+class ScopeProductLine(Base, TimestampMixin):
+    __tablename__ = "scope_product_lines"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    deal_id: Mapped[str] = mapped_column(ForeignKey("deals.id"), nullable=False)
+    scope_id: Mapped[str] = mapped_column(ForeignKey("scopes.id"), nullable=False)
     product_type: Mapped[CampaignType] = mapped_column(Enum(CampaignType), nullable=False)
     tier: Mapped[str] = mapped_column(String(32), nullable=False)
     options_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 
-class DealAttachment(Base, TimestampMixin):
-    __tablename__ = "deal_attachments"
+class ScopeAttachment(Base, TimestampMixin):
+    __tablename__ = "scope_attachments"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    deal_id: Mapped[str] = mapped_column(ForeignKey("deals.id"), nullable=False)
+    scope_id: Mapped[str] = mapped_column(ForeignKey("scopes.id"), nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
 
@@ -335,7 +326,7 @@ class Campaign(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     display_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
-    deal_id: Mapped[str] = mapped_column(ForeignKey("deals.id"), nullable=False)
+    scope_id: Mapped[str] = mapped_column(ForeignKey("scopes.id"), nullable=False)
     template_version_id: Mapped[str] = mapped_column(ForeignKey("template_versions.id"), nullable=False)
     campaign_type: Mapped[CampaignType] = mapped_column(Enum(CampaignType), nullable=False)
     tier: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -364,7 +355,7 @@ class Campaign(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_campaigns_created_at", "created_at"),
         Index("ix_campaigns_status_created_at", "status", "created_at"),
-        Index("ix_campaigns_deal_id", "deal_id"),
+        Index("ix_campaigns_scope_id", "scope_id"),
     )
 
 
@@ -424,7 +415,6 @@ class Deliverable(Base, TimestampMixin):
     deliverable_type: Mapped[DeliverableType] = mapped_column(Enum(DeliverableType), nullable=False)
     # Deprecated compatibility field. Operational progress is derived from linked workflow steps
     # and milestone timestamps; this field must not be treated as source of truth.
-    status: Mapped[DeliverableStatus] = mapped_column(Enum(DeliverableStatus), default=DeliverableStatus.PLANNED, nullable=False)
     stage: Mapped[DeliverableStage] = mapped_column(
         Enum(DeliverableStage, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
         default=DeliverableStage.PLANNING,

@@ -6,10 +6,10 @@ from types import SimpleNamespace
 from app.models.domain import CampaignType, DeliverableStatus, DeliverableType, PublicationName, RoleName
 
 
-def build_deal(**overrides):
+def build_scope(**overrides):
     base = {
-        "id": "deal-1",
-        "display_id": "DEAL-001",
+        "id": "scope-1",
+        "display_id": "SCOPE-001",
         "client_id": "client-1",
         "am_user_id": "am-1",
         "brand_publication": PublicationName.UC_TODAY,
@@ -32,7 +32,7 @@ def build_campaign(**overrides):
     base = {
         "id": "campaign-1",
         "display_id": "CAMP-001",
-        "deal_id": "deal-1",
+        "scope_id": "scope-1",
         "template_version_id": "tpl-1",
         "campaign_type": CampaignType.DEMAND,
         "tier": "gold",

@@ -12,7 +12,7 @@ from app.db.base import Base
 from app.db.schema_updates import assert_runtime_integrity
 from app.db.session import assert_sqlite_foreign_keys_enabled
 from app.models.domain import RoleName, SowChangeRequest
-from app.schemas.deals import SowChangeCreateIn
+from app.schemas.scopes import SowChangeCreateIn
 from app.services.change_control_service import ChangeControlService
 
 

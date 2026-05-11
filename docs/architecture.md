@@ -104,7 +104,7 @@ The structural model should answer only:
 
 For StageNexus, the clearest current expression is:
 
-`Deal -> Campaign -> Stage -> Step`
+`Scope -> Campaign -> Stage -> Step`
 
 Deliverables sit under campaigns and can be linked to steps.
 
@@ -115,7 +115,7 @@ The workflow model should answer only:
 - what gates later actions
 - what approval flows change state
 
-Examples include deal submission, ops approval, readiness checks, campaign generation, publish readiness, and SOW change control.
+Examples include scope submission, ops approval, readiness checks, campaign generation, publish readiness, and SOW change control.
 
 ### Governance
 The governance model should answer only:

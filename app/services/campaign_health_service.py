@@ -12,7 +12,7 @@ from app.models.domain import (
     Campaign,
     CampaignAssignment,
     CapacityLedger,
-    Deal,
+    Scope,
     Deliverable,
     RoleName,
     ReviewWindow,
@@ -303,9 +303,9 @@ class CampaignHealthService:
         limit: int = 25,
         offset: int = 0,
     ) -> dict[str, Any]:
-        deals_by_id = {
+        scopes_by_id = {
             d.id: d
-            for d in self.db.scalars(select(Deal).where(Deal.id.in_([c.deal_id for c in campaigns]))).all()
+            for d in self.db.scalars(select(Scope).where(Scope.id.in_([c.scope_id for c in campaigns]))).all()
         } if campaigns else {}
         assignment_rows = self.db.scalars(select(CampaignAssignment)).all()
         owners_by_campaign: dict[str, set[str]] = {}
@@ -316,9 +316,9 @@ class CampaignHealthService:
         if owner:
             selected = [c for c in selected if owner in owners_by_campaign.get(c.id, set())]
         if publication:
-            selected = [c for c in selected if deals_by_id.get(c.deal_id) and deals_by_id[c.deal_id].brand_publication.value == publication]
+            selected = [c for c in selected if scopes_by_id.get(c.scope_id) and scopes_by_id[c.scope_id].brand_publication.value == publication]
 
-        rows = [self._serialize_health(c, self.evaluate_campaign(c), deals_by_id.get(c.deal_id), owners_by_campaign.get(c.id, set())) for c in selected]
+        rows = [self._serialize_health(c, self.evaluate_campaign(c), scopes_by_id.get(c.scope_id), owners_by_campaign.get(c.id, set())) for c in selected]
         if status:
             rows = [r for r in rows if r["overall_status"] == status]
         total = len(rows)
@@ -363,7 +363,7 @@ class CampaignHealthService:
         self,
         campaign: Campaign,
         health: CampaignHealthResult,
-        deal: Deal | None = None,
+        scope: Scope | None = None,
         owner_user_ids: set[str] | None = None,
     ) -> dict[str, Any]:
         return {
@@ -372,7 +372,7 @@ class CampaignHealthService:
             "title": campaign.title,
             "type": campaign.campaign_type.value,
             "tier": campaign.tier,
-            "publication": deal.brand_publication.value if deal else None,
+            "publication": scope.brand_publication.value if scope else None,
             "owner_user_ids": sorted(list(owner_user_ids or set())),
             "overall_status": health.overall_status,
             "worst_signal": health.worst_signal,

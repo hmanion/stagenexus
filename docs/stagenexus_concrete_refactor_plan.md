@@ -117,7 +117,7 @@ Run the refactor in **6 workstreams** across **4 phases**.
 - Remove duplicated validation or business checks from routes.
 
 ### Suggested module split
-- `deals`
+- `scopes`
 - `campaigns`
 - `deliverables`
 - `workflow`
@@ -142,7 +142,7 @@ Run the refactor in **6 workstreams** across **4 phases**.
 
 ## 5. Canonical domain vocabulary
 ### Tasks
-- Resolve naming drift between Scope/Deal, Stage/Sprint/Module, Step/Workflow Step.
+- Resolve naming drift between Scope/Scope, Stage/Sprint/Module, Step/Workflow Step.
 - Choose one canonical set of internal terms.
 - Map alternative terms only where genuinely needed.
 - Align docs, schemas, API names, database comments, and UI labels.

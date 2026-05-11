@@ -29,7 +29,7 @@ The notes also state that CCS is a campaign slot rather than a core user-app rol
 
 ## Approval rights
 
-### Deal approval and readiness
+### Scope approval and readiness
 Operations assigns the key delivery roles and verifies readiness before campaign generation.
 
 Typical controlled inputs include:

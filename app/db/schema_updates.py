@@ -1206,7 +1206,7 @@ def _ensure_new_indexes(conn) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_deliverables_campaign_type_seq ON deliverables(campaign_id, deliverable_type, sequence_number)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_created_at ON campaigns(created_at)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_status_created_at ON campaigns(status, created_at)"))
-    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_deal_id ON campaigns(deal_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_scope_id ON campaigns(scope_id)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaign_assignments_campaign_id ON campaign_assignments(campaign_id)"))
 
 

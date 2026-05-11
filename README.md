@@ -16,14 +16,14 @@ This documentation set separates those concerns so the app is easier to understa
 ### 1. Domain structure
 The core data structure is best understood as:
 
-`Deal -> Campaign -> Stage -> Step`
+`Scope -> Campaign -> Stage -> Step`
 
 Deliverables are campaign children that can be linked to steps, but they are not parents of steps.
 
 ### 2. Lifecycle workflow
 The main operational flow is:
 
-`Create deal -> Submit deal -> Ops approve -> Readiness check -> Generate campaigns -> Execute -> Publish readiness / change control`
+`Create scope -> Submit scope -> Ops approve -> Readiness check -> Generate campaigns -> Execute -> Publish readiness / change control`
 
 ### 3. Roles and governance
 The app also models ownership, team assignment, approval rights, and action controls such as CM ownership and dual approval for SOW changes.
@@ -33,7 +33,7 @@ The app applies working-day logic, holiday rules, health rollups, capacity warni
 
 ## What it currently covers
 
-- deal creation, submission, operational approval, and campaign generation
+- scope creation, submission, operational approval, and campaign generation
 - campaign, stage, deliverable, and step entities
 - working-day timeline logic using a Monday to Thursday working week
 - England and Wales holiday handling via a GOV.UK holiday source
@@ -128,7 +128,7 @@ PYTHONPATH=. .venv/bin/python scripts/backfill_recent_updates.py
 
 - replace the current root README with this version or merge the key sections into it
 - move project notes from ad hoc files into the `docs/` folder in the repo
-- align remaining repo language around `Deal -> Campaign -> Stage -> Step`
+- align remaining repo language around `Scope -> Campaign -> Stage -> Step`
 - keep workflow, governance, and planning rules in separate docs rather than merging them into one model page
 - add an endpoint inventory generated from the route layer once the API stabilises
 - keep schema evolution Alembic-first and avoid extending runtime schema patching

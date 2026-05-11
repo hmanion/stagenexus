@@ -4,7 +4,7 @@
 
 **StageNexus** is a FastAPI-based campaign operations backend for Today Digital. The repository positions it as a purpose-built operations system for managing the lifecycle from commercial agreement through campaign execution, using the core model:
 
-**Deal -> Campaign -> Stage -> Step** (with deliverables as campaign children that can be linked to steps)
+**Scope -> Campaign -> Stage -> Step** (with deliverables as campaign children that can be linked to steps)
 
 The current app is implemented in Python rather than Laravel, but the repo explicitly keeps the architecture framework-agnostic so it can later migrate to Laravel if needed.
 
@@ -12,7 +12,7 @@ The current app is implemented in Python rather than Laravel, but the repo expli
 
 The repo and project notes show that the app already supports:
 
-- deal creation, submission, ops approval, and campaign generation
+- scope creation, submission, ops approval, and campaign generation
 - campaign, stage, deliverable, and workflow-step data structures
 - a working-day timeline engine based on a **Mon-Thu** working week
 - England/Wales bank holiday support using the GOV.UK holiday feed
@@ -88,7 +88,7 @@ The service layer is substantial and suggests the app’s core rules live outsid
 - `capacity_override_service.py`
 - `capacity_service.py`
 - `change_control_service.py`
-- `deal_service.py`
+- `scope_service.py`
 - `deliverable_workflow_service.py`
 - `my_work_queue_service.py`
 - `ops_defaults_service.py`
@@ -106,13 +106,13 @@ This is a good sign: the codebase appears to separate HTTP transport from operat
 The documentation and model names indicate a campaign operations domain built around a structured delivery hierarchy.
 
 ### Main hierarchy
-1. **Deal**
+1. **Scope**
    - commercial scope / pre-delivery setup
    - owned by AM during early lifecycle
    - must pass readiness before campaigns are generated
 
 2. **Campaign**
-   - generated from a deal after readiness approval
+   - generated from a scope after readiness approval
    - pinned to a template version
    - assigned operational ownership, typically CM-led
 
@@ -205,13 +205,13 @@ From the repo README and route file, the current API includes at least:
 #### Health and startup
 - `GET /health`
 
-#### Deals / scopes
-- `POST /api/deals`
-- `POST /api/deals/{deal_id}/submit`
-- `POST /api/deals/{deal_id}/ops-approve`
-- `POST /api/deals/{deal_id}/generate-campaigns`
+#### Scopes / scopes
+- `POST /api/scopes`
+- `POST /api/scopes/{scope_id}/submit`
+- `POST /api/scopes/{scope_id}/ops-approve`
+- `POST /api/scopes/{scope_id}/generate-campaigns`
 
-The route file also preserves compatibility aliases using `/scopes` alongside `/deals`, which suggests the codebase is transitioning naming from “scope” to “deal”.
+The route file also preserves compatibility aliases using `/scopes` alongside `/scopes`, which suggests the codebase is transitioning naming from “scope” to “scope”.
 
 #### Campaigns
 - `GET /api/campaigns/{campaign_id}`
@@ -250,8 +250,8 @@ The route file also preserves compatibility aliases using `/scopes` alongside `/
 ### Authorization pattern
 The route layer uses an `AuthzService`, and route snippets show role/ownership checks such as:
 
-- AM or admin for creating deals
-- deal owner or privileged role for submitting deals
+- AM or admin for creating scopes
+- scope owner or privileged role for submitting scopes
 - restricted approval/generation permissions for ops and leadership flows
 
 Authorization has been hardened and centralized through `AuthzService`, with route-level enforcement across mutable and sensitive paths and dedicated regression coverage in `tests/test_authz_hardening.py`.
@@ -261,7 +261,7 @@ Authorization has been hardened and centralized through `AuthzService`, with rou
 Since the last broad docs refresh, the codebase has moved materially in a few areas:
 
 - Route architecture split:
-  - API routes were split from the legacy monolithic route module into `app/api/routes/campaigns.py`, `app/api/routes/deals.py`, and shared helpers in `app/api/core_routes.py` and `app/api/deps.py`.
+  - API routes were split from the legacy monolithic route module into `app/api/routes/campaigns.py`, `app/api/routes/scopes.py`, and shared helpers in `app/api/core_routes.py` and `app/api/deps.py`.
 - Frontend asset split:
   - UI assets were separated into static CSS/JS (`app/static/app.css`, `app/static/app.js`) and template partials under `app/templates/`.
 - Migration maturity:
@@ -279,11 +279,11 @@ Since the last broad docs refresh, the codebase has moved materially in a few ar
 
 A typical intended flow appears to be:
 
-1. **Create deal**
-   - AM creates a new deal/scope with client, dates, objective, positioning, and product lines.
+1. **Create scope**
+   - AM creates a new scope/scope with client, dates, objective, positioning, and product lines.
 
-2. **Submit deal**
-   - deal moves from draft toward operational review.
+2. **Submit scope**
+   - scope moves from draft toward operational review.
 
 3. **Ops approve**
    - Head Ops approval assigns operational roles such as CM and CC and validates readiness.
@@ -425,7 +425,7 @@ According to implementation notes, the following remain:
 - clear separation between routes, schemas, models, and services
 - operational rules are explicit rather than buried in UI logic
 - deployment path already anticipates self-hosted staging/production
-- compatibility aliasing (`scope` -> `deal`) suggests care for iterative change
+- compatibility aliasing (`scope` -> `scope`) suggests care for iterative change
 
 ### Current limitations
 - large route file suggests API decomposition may be needed over time
@@ -445,10 +445,10 @@ If you want the repo to feel complete for future development, these are the docu
    - system components, package structure, database responsibilities, service boundaries
 
 3. **docs/domain-model.md**
-   - definitions for Deal, Campaign, Sprint, Module, Deliverable, Workflow Step, ownership and status rules
+   - definitions for Scope, Campaign, Sprint, Module, Deliverable, Workflow Step, ownership and status rules
 
 4. **docs/workflows.md**
-   - deal-to-campaign lifecycle, publish readiness, SOW change approvals, risk/capacity jobs
+   - scope-to-campaign lifecycle, publish readiness, SOW change approvals, risk/capacity jobs
 
 5. **docs/deployment.md**
    - environment topology, secrets, backup/restore, migration and rollback process
@@ -461,4 +461,4 @@ If you want the repo to feel complete for future development, these are the docu
 
 ## 15. Concise summary
 
-StageNexus is a backend-led campaign operations system for Today Digital built in FastAPI with SQLAlchemy, designed around a structured operational hierarchy and rules-driven delivery model. It already covers the most important foundations — deals, readiness, campaign generation, workflow, risk, capacity, change control, and calendar logic — and is far beyond a bare scaffold. The main remaining work is hardening: authorization, richer dashboards/UI, dependency recalculation, notifications, and production-grade migration/indexing strategy.
+StageNexus is a backend-led campaign operations system for Today Digital built in FastAPI with SQLAlchemy, designed around a structured operational hierarchy and rules-driven delivery model. It already covers the most important foundations — scopes, readiness, campaign generation, workflow, risk, capacity, change control, and calendar logic — and is far beyond a bare scaffold. The main remaining work is hardening: authorization, richer dashboards/UI, dependency recalculation, notifications, and production-grade migration/indexing strategy.

@@ -33,12 +33,12 @@ class PublicIdService:
             if exists == 0:
                 return candidate
 
-    def next_deal_id(self, model: type, client_name: str, submitted_on: date | None = None) -> str:
+    def next_scope_id(self, model: type, client_name: str, submitted_on: date | None = None) -> str:
         submitted_on = submitted_on or date.today()
         year_full = submitted_on.year
         year_short = year_full % 100
         abbrev = self._brand_abbreviation(client_name)
-        scope = f"DEAL:{abbrev}"
+        scope = f"SCOPE:{abbrev}"
         while True:
             counter = self.db.scalar(
                 select(PublicIdCounter)
@@ -85,7 +85,7 @@ class PublicIdService:
         }
         cleaned = re.sub(r"[^A-Za-z0-9 ]+", " ", (client_name or "")).strip()
         if not cleaned:
-            return "DEAL"
+            return "SCOPE"
 
         compact = re.sub(r"\s+", " ", cleaned).strip().lower()
         if compact in ticker_map:
@@ -119,7 +119,7 @@ class PublicIdService:
         base = meaningful[0] if meaningful else tokens[0]
         base = re.sub(r"[^a-z]", "", base)
         if not base:
-            return "DEAL"
+            return "SCOPE"
 
         if len(base) <= 4:
             return base.upper().ljust(4, "X")

@@ -18,9 +18,9 @@ from app.models.domain import (
     CampaignAssignment,
     Client,
     ClientContact,
-    Deal,
-    DealAttachment,
-    DealProductLine,
+    Scope,
+    ScopeAttachment,
+    ScopeProductLine,
     CapacityLedger,
     Deliverable,
     DeliverableStage,
@@ -54,7 +54,7 @@ from app.schemas.campaigns import (
     CampaignOut,
     CampaignStatusUpdateIn,
 )
-from app.schemas.deals import OpsApproveIn, ScopeDeleteIn
+from app.schemas.scopes import OpsApproveIn, ScopeDeleteIn
 from app.schemas.deliverables import (
     DeliverableDatesUpdateIn,
     DeliverableDueUpdateIn,
@@ -175,9 +175,9 @@ def delete_campaign(campaign_id: str, actor_user_id: str, db: Session = Depends(
     return {"deleted": True, "campaign_id": campaign.display_id, "counts": deleted}
 
 
-@router.get("/deals")
 @router.get("/scopes")
-def list_deals(
+@router.get("/scopes")
+def list_scopes(
     limit: int = 25,
     offset: int = 0,
     q: str | None = None,
@@ -190,11 +190,11 @@ def list_deals(
         actor = AuthzService(db).actor(actor_user_id)
         full_visibility = _actor_has_full_scope_campaign_visibility(actor)
 
-    deals = db.scalars(select(Deal).order_by(Deal.created_at.desc())).all()
+    scopes = db.scalars(select(Scope).order_by(Scope.created_at.desc())).all()
     campaigns = db.scalars(select(Campaign)).all()
-    campaigns_by_deal: dict[str, list[Campaign]] = {}
+    campaigns_by_scope: dict[str, list[Campaign]] = {}
     for c in campaigns:
-        campaigns_by_deal.setdefault(c.deal_id, []).append(c)
+        campaigns_by_scope.setdefault(c.scope_id, []).append(c)
     assignments = db.scalars(select(CampaignAssignment)).all()
     assignments_by_campaign: dict[str, list[CampaignAssignment]] = {}
     for a in assignments:
@@ -228,24 +228,24 @@ def list_deals(
     contacts_by_client: dict[str, list[ClientContact]] = {}
     for contact in db.scalars(select(ClientContact).order_by(ClientContact.created_at.asc())).all():
         contacts_by_client.setdefault(contact.client_id, []).append(contact)
-    attachments_by_deal: dict[str, list[DealAttachment]] = {}
-    for attachment in db.scalars(select(DealAttachment).order_by(DealAttachment.created_at.desc())).all():
-        attachments_by_deal.setdefault(attachment.deal_id, []).append(attachment)
-    product_lines = db.scalars(select(DealProductLine)).all()
-    lines_by_deal: dict[str, list[DealProductLine]] = {}
+    attachments_by_scope: dict[str, list[ScopeAttachment]] = {}
+    for attachment in db.scalars(select(ScopeAttachment).order_by(ScopeAttachment.created_at.desc())).all():
+        attachments_by_scope.setdefault(attachment.scope_id, []).append(attachment)
+    product_lines = db.scalars(select(ScopeProductLine)).all()
+    lines_by_scope: dict[str, list[ScopeProductLine]] = {}
     for line in product_lines:
-        lines_by_deal.setdefault(line.deal_id, []).append(line)
+        lines_by_scope.setdefault(line.scope_id, []).append(line)
     assignment_user_ids = {
         assignment.user_id
         for assignment_list in assignments_by_campaign.values()
         for assignment in assignment_list
         if assignment.user_id
     }
-    am_user_ids = {deal.am_user_id for deal in deals if deal.am_user_id}
+    am_user_ids = {scope.am_user_id for scope in scopes if scope.am_user_id}
     staffing_user_ids = {
         user_id
-        for deal in deals
-        for user_id in (deal.assigned_cm_user_id, deal.assigned_cc_user_id, deal.assigned_ccs_user_id)
+        for scope in scopes
+        for user_id in (scope.assigned_cm_user_id, scope.assigned_cc_user_id, scope.assigned_ccs_user_id)
         if user_id
     }
     deliverable_owner_user_ids = {
@@ -294,34 +294,34 @@ def list_deals(
             )
         return actor.user_id in campaign_user_ids
 
-    def _deal_visible_for_actor(deal: Deal, child_campaigns: list[Campaign]) -> bool:
+    def _scope_visible_for_actor(scope: Scope, child_campaigns: list[Campaign]) -> bool:
         if full_visibility or not actor:
             return True
         if actor.seniority == SeniorityLevel.MANAGER:
-            deal_user_ids = {
-                deal.am_user_id,
-                deal.assigned_cm_user_id,
-                deal.assigned_cc_user_id,
-                deal.assigned_ccs_user_id,
+            scope_user_ids = {
+                scope.am_user_id,
+                scope.assigned_cm_user_id,
+                scope.assigned_cc_user_id,
+                scope.assigned_ccs_user_id,
             }
-            deal_user_ids = {uid for uid in deal_user_ids if uid}
-            team_matches_deal = any(
+            scope_user_ids = {uid for uid in scope_user_ids if uid}
+            team_matches_scope = any(
                 (uid in users_by_id) and (users_by_id[uid].primary_team == actor.primary_team)
-                for uid in deal_user_ids
+                for uid in scope_user_ids
             )
-            return team_matches_deal or any(_campaign_visible_for_actor(c) for c in child_campaigns)
+            return team_matches_scope or any(_campaign_visible_for_actor(c) for c in child_campaigns)
         return (
-            actor.user_id == deal.am_user_id
-            or actor.user_id in {deal.assigned_cm_user_id, deal.assigned_cc_user_id, deal.assigned_ccs_user_id}
+            actor.user_id == scope.am_user_id
+            or actor.user_id in {scope.assigned_cm_user_id, scope.assigned_cc_user_id, scope.assigned_ccs_user_id}
             or any(_campaign_visible_for_actor(c) for c in child_campaigns)
         )
     all_items = []
-    for d in deals:
-        deal_campaigns = campaigns_by_deal.get(d.id, [])
-        if not _deal_visible_for_actor(d, deal_campaigns):
+    for d in scopes:
+        scope_campaigns = campaigns_by_scope.get(d.id, [])
+        if not _scope_visible_for_actor(d, scope_campaigns):
             continue
         campaign_evals: list[tuple[Campaign, Any]] = []
-        for c in deal_campaigns:
+        for c in scope_campaigns:
             c_eval, _ = timeline_health.evaluate_campaign(
                 campaign=c,
                 deliverables=deliverables_by_campaign.get(c.id, []),
@@ -386,7 +386,7 @@ def list_deals(
         scope_eval = timeline_health.evaluate_scope(d, campaign_evals)
         scope_contacts = contacts_by_client.get(d.client_id, [])
         primary_contact = scope_contacts[0] if scope_contacts else None
-        scope_attachments = attachments_by_deal.get(d.id, [])
+        scope_attachments = attachments_by_scope.get(d.id, [])
         am_user = users_by_id.get(d.am_user_id)
         all_items.append({
                 "id": d.display_id,
@@ -408,7 +408,7 @@ def list_deals(
                         "product_type": line.product_type.value,
                         "tier": line.tier,
                     }
-                    for line in lines_by_deal.get(d.id, [])
+                    for line in lines_by_scope.get(d.id, [])
                 ],
                 "am_user": {
                     "user_id": d.am_user_id,
@@ -533,12 +533,12 @@ def list_campaigns(
         )
         return payload
 
-    deals_by_id = {
+    scopes_by_id = {
         d.id: d
-        for d in db.scalars(select(Deal).where(Deal.id.in_([c.deal_id for c in campaigns]))).all()
+        for d in db.scalars(select(Scope).where(Scope.id.in_([c.scope_id for c in campaigns]))).all()
     }
     query_count += 1
-    fetched_child_records += len(deals_by_id)
+    fetched_child_records += len(scopes_by_id)
 
     assignment_rows = db.scalars(
         select(CampaignAssignment).where(CampaignAssignment.campaign_id.in_(campaign_ids))
@@ -631,7 +631,7 @@ def list_campaigns(
                 "type": campaign.campaign_type.value,
                 "tier": campaign.tier,
                 "title": campaign.title,
-                "scope_id": deals_by_id.get(campaign.deal_id).display_id if deals_by_id.get(campaign.deal_id) else None,
+                "scope_id": scopes_by_id.get(campaign.scope_id).display_id if scopes_by_id.get(campaign.scope_id) else None,
                 "status": _normalize_campaign_status(campaign.status).value,
                 "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source or "derived"),
                 "status_overridden_by_user_id": campaign.status_overridden_by_user_id,
@@ -1322,7 +1322,7 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="campaign not found")
     StageIntegrityService(db).reconcile_campaign(campaign.id)
     timeline_health = TimelineHealthService(db)
-    scope = db.get(Deal, campaign.deal_id) if campaign.deal_id else None
+    scope = db.get(Scope, campaign.scope_id) if campaign.scope_id else None
 
     deliverables = db.scalars(select(Deliverable).where(Deliverable.campaign_id == campaign.id)).all()
     assignment_rows = db.scalars(select(CampaignAssignment).where(CampaignAssignment.campaign_id == campaign.id)).all()
@@ -2472,7 +2472,7 @@ def override_milestone_sla(milestone_id: str, payload: MilestoneSlaOverrideIn, d
 
 @router.get("/dashboard/summary")
 def dashboard_summary(db: Session = Depends(get_db)):
-    deals = db.scalars(select(Deal)).all()
+    scopes = db.scalars(select(Scope)).all()
     campaigns = db.scalars(select(Campaign)).all()
     deliverables = db.scalars(select(Deliverable)).all()
     steps = db.scalars(select(WorkflowStep)).all()
@@ -2497,8 +2497,8 @@ def dashboard_summary(db: Session = Depends(get_db)):
     open_escalations = db.scalars(select(Escalation).where(Escalation.resolved_at.is_(None))).all()
 
     return {
-        "deals_total": len(deals),
-        "deals_readiness_passed": len([d for d in deals if d.readiness_passed]),
+        "scopes_total": len(scopes),
+        "scopes_readiness_passed": len([d for d in scopes if d.readiness_passed]),
         "campaigns_total": len(campaigns),
         "deliverables_total": len(deliverables),
         "workflow_steps_open": len([s for s in steps if s.actual_done is None]),

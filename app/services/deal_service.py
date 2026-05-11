@@ -11,22 +11,22 @@ from app.models.domain import (
     CampaignType,
     Client,
     ClientContact,
-    Deal,
-    DealAttachment,
-    DealProductLine,
-    DealStatus,
+    Scope,
+    ScopeAttachment,
+    ScopeProductLine,
+    ScopeStatus,
     PublicationName,
 )
 from app.services.id_service import PublicIdService
-from app.schemas.deals import DealCreateIn, OpsApproveIn
+from app.schemas.scopes import ScopeCreateIn, OpsApproveIn
 
 
-class DealService:
+class ScopeService:
     def __init__(self, db: Session):
         self.db = db
         self.public_ids = PublicIdService(db)
 
-    def create_deal(self, payload: DealCreateIn) -> Deal:
+    def create_scope(self, payload: ScopeCreateIn) -> Scope:
         client = self.db.scalar(select(Client).where(Client.name == payload.client_name))
         if client is None:
             client = Client(name=payload.client_name)
@@ -37,8 +37,8 @@ class DealService:
         except ValueError as exc:
             raise ValueError(f"Invalid brand_publication: {payload.brand_publication}") from exc
 
-        deal = Deal(
-            display_id=self.public_ids.next_deal_id(Deal, client.name, submitted_on=date.today()),
+        scope = Scope(
+            display_id=self.public_ids.next_scope_id(Scope, client.name, submitted_on=date.today()),
             client_id=client.id,
             am_user_id=payload.am_user_id,
             brand_publication=brand_publication,
@@ -48,9 +48,9 @@ class DealService:
             campaign_objective=payload.campaign_objective,
             messaging_positioning=payload.messaging_positioning,
             commercial_notes=payload.commercial_notes,
-            status=DealStatus.DRAFT,
+            status=ScopeStatus.DRAFT,
         )
-        self.db.add(deal)
+        self.db.add(scope)
         self.db.flush()
 
         for line in payload.product_lines:
@@ -59,8 +59,8 @@ class DealService:
             except ValueError as exc:
                 raise ValueError(f"Invalid product_type: {line.product_type}") from exc
             self.db.add(
-                DealProductLine(
-                    deal_id=deal.id,
+                ScopeProductLine(
+                    scope_id=scope.id,
                     product_type=product_type,
                     tier=line.tier,
                     options_json={
@@ -83,50 +83,50 @@ class DealService:
             )
         for attachment in payload.attachments:
             self.db.add(
-                DealAttachment(
-                    deal_id=deal.id,
+                ScopeAttachment(
+                    scope_id=scope.id,
                     file_name=attachment.file_name,
                     storage_key=attachment.storage_key,
                 )
             )
 
-        self._log(deal.am_user_id, "deal", deal.id, "deal_created")
-        return deal
+        self._log(scope.am_user_id, "scope", scope.id, "scope_created")
+        return scope
 
-    def submit_deal(self, deal: Deal) -> Deal:
-        client = self.db.get(Client, deal.client_id)
+    def submit_scope(self, scope: Scope) -> Scope:
+        client = self.db.get(Client, scope.client_id)
         submitted_year = date.today().year % 100
         expected = re.compile(rf"^[A-Z]{{4}}-{submitted_year:02d}-\d{{3}}$")
-        if client and (not deal.display_id or not expected.match(deal.display_id)):
-            deal.display_id = self.public_ids.next_deal_id(Deal, client.name, submitted_on=date.today())
-        deal.status = DealStatus.SUBMITTED
-        self._log(deal.am_user_id, "deal", deal.id, "deal_submitted")
-        return deal
+        if client and (not scope.display_id or not expected.match(scope.display_id)):
+            scope.display_id = self.public_ids.next_scope_id(Scope, client.name, submitted_on=date.today())
+        scope.status = ScopeStatus.SUBMITTED
+        self._log(scope.am_user_id, "scope", scope.id, "scope_submitted")
+        return scope
 
-    def ops_approve(self, deal: Deal, payload: OpsApproveIn) -> Deal:
-        deal.status = DealStatus.OPS_APPROVED
-        deal.assigned_cm_user_id = payload.cm_user_id
-        deal.assigned_cc_user_id = payload.cc_user_id
-        deal.assigned_ccs_user_id = payload.ccs_user_id
-        deal.readiness_passed = self._readiness_gate_passed(deal)
-        deal.status = DealStatus.READINESS_PASSED if deal.readiness_passed else DealStatus.READINESS_FAILED
+    def ops_approve(self, scope: Scope, payload: OpsApproveIn) -> Scope:
+        scope.status = ScopeStatus.OPS_APPROVED
+        scope.assigned_cm_user_id = payload.cm_user_id
+        scope.assigned_cc_user_id = payload.cc_user_id
+        scope.assigned_ccs_user_id = payload.ccs_user_id
+        scope.readiness_passed = self._readiness_gate_passed(scope)
+        scope.status = ScopeStatus.READINESS_PASSED if scope.readiness_passed else ScopeStatus.READINESS_FAILED
 
-        # Assignment placeholders at deal-level via campaign id = "pending" marker in activity.
-        self._log(payload.head_ops_user_id, "deal", deal.id, "ops_approved")
-        self._log(payload.head_ops_user_id, "deal", deal.id, "staffing_assigned", {
+        # Assignment placeholders at scope-level via campaign id = "pending" marker in activity.
+        self._log(payload.head_ops_user_id, "scope", scope.id, "ops_approved")
+        self._log(payload.head_ops_user_id, "scope", scope.id, "staffing_assigned", {
             "cm_user_id": payload.cm_user_id,
             "cc_user_id": payload.cc_user_id,
             "ccs_user_id": payload.ccs_user_id,
         })
-        return deal
+        return scope
 
-    def _readiness_gate_passed(self, deal: Deal) -> bool:
+    def _readiness_gate_passed(self, scope: Scope) -> bool:
         # Operational readiness gate.
-        if not deal.sow_start_date or not deal.sow_end_date:
+        if not scope.sow_start_date or not scope.sow_end_date:
             return False
-        if not deal.icp:
+        if not scope.icp:
             return False
-        if not deal.campaign_objective or not deal.messaging_positioning:
+        if not scope.campaign_objective or not scope.messaging_positioning:
             return False
         return True
 

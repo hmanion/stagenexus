@@ -10,7 +10,7 @@ from app.models.domain import (
     AppAccessRole,
     Campaign,
     CampaignAssignment,
-    Deal,
+    Scope,
     SeniorityLevel,
     TeamName,
     Role,
@@ -243,15 +243,15 @@ class AuthzService:
             return
         raise HTTPException(status_code=403, detail=detail)
 
-    def require_deal_owner_or_roles(self, actor: Actor, deal: Deal, allowed_roles: set[RoleName]) -> None:
-        if deal.am_user_id == actor.user_id:
+    def require_scope_owner_or_roles(self, actor: Actor, scope: Scope, allowed_roles: set[RoleName]) -> None:
+        if scope.am_user_id == actor.user_id:
             return
         if actor.roles.intersection(allowed_roles):
             return
-        raise HTTPException(status_code=403, detail="actor cannot modify this deal")
+        raise HTTPException(status_code=403, detail="actor cannot modify this scope")
 
-    def can_update_deal(self, actor: Actor, deal: Deal, allowed_roles: set[RoleName]) -> bool:
-        return deal.am_user_id == actor.user_id or bool(actor.roles.intersection(allowed_roles))
+    def can_update_scope(self, actor: Actor, scope: Scope, allowed_roles: set[RoleName]) -> bool:
+        return scope.am_user_id == actor.user_id or bool(actor.roles.intersection(allowed_roles))
 
     def require_campaign_member_or_roles(
         self,

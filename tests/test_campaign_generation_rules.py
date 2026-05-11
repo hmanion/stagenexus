@@ -7,37 +7,37 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes.deals import generate_campaigns
-from app.models.domain import CampaignType, Deal, DealProductLine, DealStatus, Publication, PublicationName, TemplateVersion, User
+from app.api.routes.scopes import generate_campaigns
+from app.models.domain import CampaignType, Scope, ScopeProductLine, ScopeStatus, Publication, PublicationName, TemplateVersion, User
 from app.services.campaign_generation_service import CampaignGenerationService
-from app.services.deal_service import DealService
-from app.schemas.deals import OpsApproveIn
+from app.services.scope_service import ScopeService
+from app.schemas.scopes import OpsApproveIn
 
 
 def test_campaign_generation_blocked_before_readiness_passes() -> None:
     db = Mock()
-    deal = SimpleNamespace(status=DealStatus.READINESS_FAILED)
-    with patch("app.api.routes.deals.get_deal_or_404", return_value=deal):
+    scope = SimpleNamespace(status=ScopeStatus.READINESS_FAILED)
+    with patch("app.api.routes.scopes.get_scope_or_404", return_value=scope):
         with pytest.raises(HTTPException) as exc:
-            generate_campaigns("DEAL-1", actor_user_id="actor-1", db=db)
+            generate_campaigns("SCOPE-1", actor_user_id="actor-1", db=db)
     assert exc.value.status_code == 400
     assert "readiness gate" in str(exc.value.detail)
 
 
 def test_ops_approval_assigns_required_roles(db_session) -> None:
-    deal = Deal(
-        display_id="DEAL-001",
+    scope = Scope(
+        display_id="SCOPE-001",
         client_id="client-1",
         am_user_id="am-1",
         brand_publication=PublicationName.UC_TODAY,
-        status=DealStatus.SUBMITTED,
+        status=ScopeStatus.SUBMITTED,
         sow_start_date=date(2026, 1, 5),
         sow_end_date=date(2026, 4, 5),
         icp="IT leaders",
         campaign_objective="Demand",
         messaging_positioning="Clear",
     )
-    db_session.add(deal)
+    db_session.add(scope)
     db_session.flush()
 
     payload = OpsApproveIn(
@@ -47,22 +47,22 @@ def test_ops_approval_assigns_required_roles(db_session) -> None:
         ccs_user_id="ccs-1",
     )
 
-    DealService(db_session).ops_approve(deal, payload)
+    ScopeService(db_session).ops_approve(scope, payload)
 
-    assert deal.assigned_cm_user_id == "cm-1"
-    assert deal.assigned_cc_user_id == "cc-1"
-    assert deal.assigned_ccs_user_id == "ccs-1"
+    assert scope.assigned_cm_user_id == "cm-1"
+    assert scope.assigned_cc_user_id == "cc-1"
+    assert scope.assigned_ccs_user_id == "ccs-1"
 
 
-def _seed_demand_deal_graph(db_session, mode: str = "create_reach_capture") -> Deal:
+def _seed_demand_scope_graph(db_session, mode: str = "create_reach_capture") -> Scope:
     db_session.add(User(id="am-1", email="am@example.com", full_name="AM User"))
     db_session.add(Publication(name=PublicationName.UC_TODAY))
-    deal = Deal(
-        display_id="DEAL-DEM-001",
+    scope = Scope(
+        display_id="SCOPE-DEM-001",
         client_id="client-1",
         am_user_id="am-1",
         brand_publication=PublicationName.UC_TODAY,
-        status=DealStatus.READINESS_PASSED,
+        status=ScopeStatus.READINESS_PASSED,
         sow_start_date=date(2026, 1, 5),
         sow_end_date=date(2026, 12, 31),
         icp="IT leaders",
@@ -73,24 +73,24 @@ def _seed_demand_deal_graph(db_session, mode: str = "create_reach_capture") -> D
         assigned_cc_user_id="cc-1",
         assigned_ccs_user_id="ccs-1",
     )
-    db_session.add(deal)
+    db_session.add(scope)
     db_session.flush()
     db_session.add(
-        DealProductLine(
-            deal_id=deal.id,
+        ScopeProductLine(
+            scope_id=scope.id,
             product_type=CampaignType.DEMAND,
             tier="gold",
             options_json={"demand_module_mode": mode},
         )
     )
     db_session.flush()
-    return deal
+    return scope
 
 
 def test_generated_campaigns_pin_template_version_and_create_four_sprints(db_session, controlled_holidays) -> None:
-    deal = _seed_demand_deal_graph(db_session, mode="create_reach")
+    scope = _seed_demand_scope_graph(db_session, mode="create_reach")
 
-    generated = CampaignGenerationService(db_session).generate_for_deal(deal)
+    generated = CampaignGenerationService(db_session).generate_for_scope(scope)
 
     sprint_campaigns = [c for c in generated if c.is_demand_sprint]
     assert len(sprint_campaigns) == 4
@@ -106,9 +106,9 @@ def test_generated_campaigns_pin_template_version_and_create_four_sprints(db_ses
 
 
 def test_demand_capture_generates_separate_annual_campaign(db_session, controlled_holidays) -> None:
-    deal = _seed_demand_deal_graph(db_session, mode="create_reach_capture")
+    scope = _seed_demand_scope_graph(db_session, mode="create_reach_capture")
 
-    generated = CampaignGenerationService(db_session).generate_for_deal(deal)
+    generated = CampaignGenerationService(db_session).generate_for_scope(scope)
 
     capture = [c for c in generated if c.demand_track == "capture"]
     assert len(capture) == 1
@@ -119,8 +119,8 @@ def test_demand_capture_generates_separate_annual_campaign(db_session, controlle
 
 def test_repeat_generation_fails_safely_via_readiness_status_gate() -> None:
     db = Mock()
-    deal = SimpleNamespace(status=DealStatus.CAMPAIGNS_GENERATED)
-    with patch("app.api.routes.deals.get_deal_or_404", return_value=deal):
+    scope = SimpleNamespace(status=ScopeStatus.CAMPAIGNS_GENERATED)
+    with patch("app.api.routes.scopes.get_scope_or_404", return_value=scope):
         with pytest.raises(HTTPException) as exc:
-            generate_campaigns("DEAL-1", actor_user_id="actor-1", db=db)
+            generate_campaigns("SCOPE-1", actor_user_id="actor-1", db=db)
     assert exc.value.status_code == 400

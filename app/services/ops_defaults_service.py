@@ -267,77 +267,77 @@ DEFAULTS: dict[str, Any] = {
     "role_permissions": {
         "role_flags": {
             "am": {
-                "show_deals_pipeline": True,
+                "show_scopes_pipeline": True,
                 "show_capacity": False,
                 "show_risks": True,
                 "show_reviews": True,
                 "show_admin": False,
             },
             "head_ops": {
-                "show_deals_pipeline": True,
+                "show_scopes_pipeline": True,
                 "show_capacity": True,
                 "show_risks": True,
                 "show_reviews": True,
                 "show_admin": True,
             },
             "cm": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": True,
                 "show_risks": True,
                 "show_reviews": True,
                 "show_admin": False,
             },
             "cc": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": False,
                 "show_risks": False,
                 "show_reviews": True,
                 "show_admin": False,
             },
             "ccs": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": False,
                 "show_risks": False,
                 "show_reviews": True,
                 "show_admin": False,
             },
             "dn": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": False,
                 "show_risks": False,
                 "show_reviews": False,
                 "show_admin": False,
             },
             "mm": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": False,
                 "show_risks": False,
                 "show_reviews": False,
                 "show_admin": False,
             },
             "admin": {
-                "show_deals_pipeline": True,
+                "show_scopes_pipeline": True,
                 "show_capacity": True,
                 "show_risks": True,
                 "show_reviews": True,
                 "show_admin": True,
             },
             "leadership_viewer": {
-                "show_deals_pipeline": True,
+                "show_scopes_pipeline": True,
                 "show_capacity": True,
                 "show_risks": True,
                 "show_reviews": True,
                 "show_admin": False,
             },
             "head_sales": {
-                "show_deals_pipeline": True,
+                "show_scopes_pipeline": True,
                 "show_capacity": False,
                 "show_risks": True,
                 "show_reviews": False,
                 "show_admin": False,
             },
             "client": {
-                "show_deals_pipeline": False,
+                "show_scopes_pipeline": False,
                 "show_capacity": False,
                 "show_risks": False,
                 "show_reviews": True,
@@ -345,11 +345,11 @@ DEFAULTS: dict[str, Any] = {
             },
         },
         "control_permissions": {
-            "create_deal": ["am", "admin"],
-            "create_submit_deal": ["am", "admin"],
-            "create_demo_deal": ["am", "admin"],
-            "submit_latest_deal": ["am", "admin"],
-            "ops_approve_latest_deal": ["head_ops", "head_sales", "admin"],
+            "create_scope": ["am", "admin"],
+            "create_submit_scope": ["am", "admin"],
+            "create_demo_scope": ["am", "admin"],
+            "submit_latest_scope": ["am", "admin"],
+            "ops_approve_latest_scope": ["head_ops", "head_sales", "admin"],
             "generate_latest_campaigns": ["head_ops", "admin"],
             "complete_next_step": ["cm", "cc", "ccs", "head_ops", "admin"],
             "override_step_due": ["cm", "head_ops", "admin"],
@@ -386,7 +386,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "identity_permissions": {
         "screen_flags": {
-            "show_deals_pipeline": {
+            "show_scopes_pipeline": {
                 "teams": ["sales", "client_services"],
                 "seniorities": ["standard", "manager", "leadership"],
                 "app_roles": ["user", "admin", "superadmin"],
@@ -413,11 +413,11 @@ DEFAULTS: dict[str, Any] = {
             },
         },
         "control_permissions": {
-            "create_deal": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
-            "create_submit_deal": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
-            "create_demo_deal": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
-            "submit_latest_deal": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
-            "ops_approve_latest_deal": {"teams": ["sales", "client_services"], "seniorities": ["leadership"], "app_roles": ["user", "admin", "superadmin"]},
+            "create_scope": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
+            "create_submit_scope": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
+            "create_demo_scope": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
+            "submit_latest_scope": {"teams": ["sales"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
+            "ops_approve_latest_scope": {"teams": ["sales", "client_services"], "seniorities": ["leadership"], "app_roles": ["user", "admin", "superadmin"]},
             "generate_latest_campaigns": {"teams": ["client_services"], "seniorities": ["leadership"], "app_roles": ["user", "admin", "superadmin"]},
             "complete_next_step": {"teams": ["editorial", "client_services"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
             "override_step_due": {"teams": ["client_services"], "seniorities": ["standard", "manager", "leadership"], "app_roles": ["user", "admin", "superadmin"]},
@@ -665,7 +665,7 @@ class OpsDefaultsService:
             "head_sales",
             "client",
         }
-        required_flags = {"show_deals_pipeline", "show_capacity", "show_risks", "show_reviews", "show_admin"}
+        required_flags = {"show_scopes_pipeline", "show_capacity", "show_risks", "show_reviews", "show_admin"}
 
         for role, flags in role_flags.items():
             if role not in valid_roles:

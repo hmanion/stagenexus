@@ -5,7 +5,7 @@ Revises:
 Create Date: 2026-04-22 12:07:56.393445
 
 Canonical schema objects:
-- Deal -> Campaign -> Stage -> WorkflowStep hierarchy
+- Scope -> Campaign -> Stage -> WorkflowStep hierarchy
 - Campaign children: Deliverable, ProductModule, Milestone
 - Identity/access, client/commercial, review, risk/performance/capacity/audit tables
 
@@ -160,13 +160,13 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('display_id')
     )
-    op.create_table('deals',
+    op.create_table('scopes',
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('display_id', sa.String(length=32), nullable=False),
     sa.Column('client_id', sa.String(length=36), nullable=False),
     sa.Column('am_user_id', sa.String(length=36), nullable=False),
     sa.Column('brand_publication', sa.Enum('UC_TODAY', 'CX_TODAY', 'TECHTELLIGENCE', name='publicationname'), nullable=False),
-    sa.Column('status', sa.Enum('DRAFT', 'SUBMITTED', 'OPS_REVIEW', 'OPS_APPROVED', 'READINESS_FAILED', 'READINESS_PASSED', 'CAMPAIGNS_GENERATED', name='dealstatus'), nullable=False),
+    sa.Column('status', sa.Enum('DRAFT', 'SUBMITTED', 'OPS_REVIEW', 'OPS_APPROVED', 'READINESS_FAILED', 'READINESS_PASSED', 'CAMPAIGNS_GENERATED', name='scopestatus'), nullable=False),
     sa.Column('sow_start_date', sa.Date(), nullable=True),
     sa.Column('sow_end_date', sa.Date(), nullable=True),
     sa.Column('icp', sa.Text(), nullable=True),
@@ -228,7 +228,7 @@ def upgrade() -> None:
     op.create_table('campaigns',
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('display_id', sa.String(length=32), nullable=False),
-    sa.Column('deal_id', sa.String(length=36), nullable=False),
+    sa.Column('scope_id', sa.String(length=36), nullable=False),
     sa.Column('template_version_id', sa.String(length=36), nullable=False),
     sa.Column('campaign_type', sa.Enum('DEMAND', 'AMPLIFY', 'RESPONSE', 'DISPLAY_ONLY', name='campaigntype'), nullable=False),
     sa.Column('tier', sa.String(length=32), nullable=False),
@@ -244,31 +244,31 @@ def upgrade() -> None:
     sa.Column('demand_track', sa.String(length=32), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['deal_id'], ['deals.id'], ),
+    sa.ForeignKeyConstraint(['scope_id'], ['scopes.id'], ),
     sa.ForeignKeyConstraint(['status_overridden_by_user_id'], ['users.id'], ),
     sa.ForeignKeyConstraint(['template_version_id'], ['template_versions.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('display_id')
     )
-    op.create_table('deal_attachments',
+    op.create_table('scope_attachments',
     sa.Column('id', sa.String(length=36), nullable=False),
-    sa.Column('deal_id', sa.String(length=36), nullable=False),
+    sa.Column('scope_id', sa.String(length=36), nullable=False),
     sa.Column('file_name', sa.String(length=255), nullable=False),
     sa.Column('storage_key', sa.String(length=500), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['deal_id'], ['deals.id'], ),
+    sa.ForeignKeyConstraint(['scope_id'], ['scopes.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('deal_product_lines',
+    op.create_table('scope_product_lines',
     sa.Column('id', sa.String(length=36), nullable=False),
-    sa.Column('deal_id', sa.String(length=36), nullable=False),
+    sa.Column('scope_id', sa.String(length=36), nullable=False),
     sa.Column('product_type', sa.Enum('DEMAND', 'AMPLIFY', 'RESPONSE', 'DISPLAY_ONLY', name='campaigntype'), nullable=False),
     sa.Column('tier', sa.String(length=32), nullable=False),
     sa.Column('options_json', sa.JSON(), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
-    sa.ForeignKeyConstraint(['deal_id'], ['deals.id'], ),
+    sa.ForeignKeyConstraint(['scope_id'], ['scopes.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('benchmark_targets',
@@ -678,13 +678,13 @@ def downgrade() -> None:
     op.drop_table('risks_manual')
     op.drop_table('campaign_assignments')
     op.drop_table('benchmark_targets')
-    op.drop_table('deal_product_lines')
-    op.drop_table('deal_attachments')
+    op.drop_table('scope_product_lines')
+    op.drop_table('scope_attachments')
     op.drop_table('campaigns')
     op.drop_table('user_role_assignments')
     op.drop_table('notes')
     op.drop_table('escalations')
-    op.drop_table('deals')
+    op.drop_table('scopes')
     op.drop_table('comments')
     op.drop_table('client_contacts')
     op.drop_table('capacity_ledger')

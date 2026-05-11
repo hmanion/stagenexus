@@ -11,8 +11,8 @@ from app.models.domain import (
     CampaignAssignment,
     CampaignType,
     Client,
-    Deal,
-    DealProductLine,
+    Scope,
+    ScopeProductLine,
     Deliverable,
     DeliverableStage,
     DeliverableStatus,
@@ -62,22 +62,22 @@ class CampaignGenerationService:
         self.milestones = MilestoneService(db)
         self.deliverable_derivation = DeliverableDerivationService(db)
 
-    def generate_for_deal(self, deal: Deal) -> list[Campaign]:
-        lines = self.db.scalars(select(DealProductLine).where(DealProductLine.deal_id == deal.id)).all()
+    def generate_for_scope(self, scope: Scope) -> list[Campaign]:
+        lines = self.db.scalars(select(ScopeProductLine).where(ScopeProductLine.scope_id == scope.id)).all()
         if not lines:
-            raise ValueError("Cannot generate campaigns without deal product lines")
+            raise ValueError("Cannot generate campaigns without scope product lines")
 
-        publication = self.db.scalar(select(Publication).where(Publication.name == deal.brand_publication))
+        publication = self.db.scalar(select(Publication).where(Publication.name == scope.brand_publication))
         if publication is None:
             raise ValueError("Missing publication seed data")
 
         generated: list[Campaign] = []
-        client_name = self._client_name_from_deal(deal)
+        client_name = self._client_name_from_scope(scope)
         for line in lines:
             template = self._get_or_create_template(line.product_type.value)
-            brand_code, yy = self._brand_year_from_deal(deal)
-            product_code = self._campaign_product_code(deal, line)
-            sow_start = deal.sow_start_date or date.today()
+            brand_code, yy = self._brand_year_from_scope(scope)
+            product_code = self._campaign_product_code(scope, line)
+            sow_start = scope.sow_start_date or date.today()
 
             if line.product_type == CampaignType.DEMAND:
                 mode = ((line.options_json or {}).get("demand_module_mode") or "create_reach_capture").strip().lower()
@@ -85,7 +85,7 @@ class CampaignGenerationService:
                     sprint_start = sow_start + timedelta(days=(i - 1) * 90)
                     sprint_end = sprint_start + timedelta(days=89)
                     cr_campaign = self._create_campaign_record(
-                        deal=deal,
+                        scope=scope,
                         template=template,
                         brand_code=brand_code,
                         yy=yy,
@@ -94,7 +94,7 @@ class CampaignGenerationService:
                         campaign_type=line.product_type,
                         title=self._campaign_title(
                             client_name=client_name,
-                            deal=deal,
+                            scope=scope,
                             campaign_type=line.product_type,
                             tier=line.tier,
                             demand_track="create_reach",
@@ -107,7 +107,7 @@ class CampaignGenerationService:
                         demand_track="create_reach",
                     )
                     generated.append(cr_campaign)
-                    self._create_campaign_assignments(cr_campaign, deal)
+                    self._create_campaign_assignments(cr_campaign, scope)
                     for module in ["create", "reach"]:
                         self.db.add(ProductModule(campaign_id=cr_campaign.id, module_name=module, enabled=True))
                     self._create_milestones(cr_campaign, template, sprint_start)
@@ -115,7 +115,7 @@ class CampaignGenerationService:
                     created_deliverables: list[Deliverable] = []
                     for d in deliverables:
                         created_deliverables.append(self._create_deliverable_with_steps(
-                            deal=deal,
+                            scope=scope,
                             campaign=cr_campaign,
                             publication_id=publication.id,
                             deliverable_type=d,
@@ -135,7 +135,7 @@ class CampaignGenerationService:
 
                 if mode == "create_reach_capture":
                     cap_campaign = self._create_campaign_record(
-                        deal=deal,
+                        scope=scope,
                         template=template,
                         brand_code=brand_code,
                         yy=yy,
@@ -144,25 +144,25 @@ class CampaignGenerationService:
                         campaign_type=line.product_type,
                         title=self._campaign_title(
                             client_name=client_name,
-                            deal=deal,
+                            scope=scope,
                             campaign_type=line.product_type,
                             tier=line.tier,
                             demand_track="capture",
                             demand_sprint_number=None,
                         ),
                         planned_start_date=sow_start,
-                        planned_end_date=deal.sow_end_date or (sow_start + timedelta(days=364)),
+                        planned_end_date=scope.sow_end_date or (sow_start + timedelta(days=364)),
                         is_demand_sprint=False,
                         demand_sprint_number=None,
                         demand_track="capture",
                     )
                     generated.append(cap_campaign)
-                    self._create_campaign_assignments(cap_campaign, deal)
+                    self._create_campaign_assignments(cap_campaign, scope)
                     self.db.add(ProductModule(campaign_id=cap_campaign.id, module_name="capture", enabled=True))
                     self._create_milestones(cap_campaign, template, sow_start)
                     lead_target = self._response_target_leads_for_line(line)
                     created = self._create_deliverable_with_steps(
-                        deal=deal,
+                        scope=scope,
                         campaign=cap_campaign,
                         publication_id=publication.id,
                         deliverable_type=DeliverableType.LEAD_TOTAL,
@@ -182,7 +182,7 @@ class CampaignGenerationService:
                 continue
 
             campaign = self._create_campaign_record(
-                deal=deal,
+                scope=scope,
                 template=template,
                 brand_code=brand_code,
                 yy=yy,
@@ -191,7 +191,7 @@ class CampaignGenerationService:
                 campaign_type=line.product_type,
                 title=self._campaign_title(
                     client_name=client_name,
-                    deal=deal,
+                    scope=scope,
                     campaign_type=line.product_type,
                     tier=line.tier,
                     demand_track=None,
@@ -204,7 +204,7 @@ class CampaignGenerationService:
                 demand_track=None,
             )
             generated.append(campaign)
-            self._create_campaign_assignments(campaign, deal)
+            self._create_campaign_assignments(campaign, scope)
             for module in self._resolve_modules(line):
                 self.db.add(ProductModule(campaign_id=campaign.id, module_name=module, enabled=True))
             self._create_milestones(campaign, template, sow_start)
@@ -213,7 +213,7 @@ class CampaignGenerationService:
             for d in deliverables:
                 lead_target = self._response_target_leads_for_line(line) if d == DeliverableType.LEAD_TOTAL else None
                 created_deliverables.append(self._create_deliverable_with_steps(
-                    deal=deal,
+                    scope=scope,
                     campaign=campaign,
                     publication_id=publication.id,
                     deliverable_type=d,
@@ -377,29 +377,29 @@ class CampaignGenerationService:
     def _campaign_title(
         self,
         client_name: str,
-        deal: Deal,
+        scope: Scope,
         campaign_type: CampaignType,
         tier: str,
         demand_track: str | None,
         demand_sprint_number: int | None,
     ) -> str:
         client = (client_name or "Client").strip()
-        publication_code = self._publication_suffix(deal.brand_publication)
+        publication_code = self._publication_suffix(scope.brand_publication)
         kind = self._campaign_type_label(campaign_type, demand_track=demand_track)
         title = f"{client} - {kind} {tier.title()} - {publication_code}"
         if campaign_type == CampaignType.DEMAND and demand_track != "capture" and demand_sprint_number:
             title = f"{client} - {kind} {tier.title()} S{demand_sprint_number} - {publication_code}"
         return title
 
-    def _client_name_from_deal(self, deal: Deal) -> str:
-        client = self.db.get(Client, deal.client_id)
+    def _client_name_from_scope(self, scope: Scope) -> str:
+        client = self.db.get(Client, scope.client_id)
         full = (client.name if client and client.name else "Client").strip()
         first_word = full.split()[0] if full else "Client"
         return first_word
 
     def _create_campaign_record(
         self,
-        deal: Deal,
+        scope: Scope,
         template: TemplateVersion,
         brand_code: str,
         yy: int,
@@ -415,7 +415,7 @@ class CampaignGenerationService:
     ) -> Campaign:
         campaign = Campaign(
             display_id=self.public_ids.next_campaign_id(Campaign, brand_code=brand_code, yy=yy, product_code=product_code),
-            deal_id=deal.id,
+            scope_id=scope.id,
             template_version_id=template.id,
             campaign_type=campaign_type,
             tier=tier,
@@ -431,11 +431,11 @@ class CampaignGenerationService:
         self.db.flush()
         return campaign
 
-    def _brand_year_from_deal(self, deal: Deal) -> tuple[str, int]:
-        match = re.match(r"^([A-Z]{4})-(\d{2})-\d{3}$", deal.display_id or "")
+    def _brand_year_from_scope(self, scope: Scope) -> tuple[str, int]:
+        match = re.match(r"^([A-Z]{4})-(\d{2})-\d{3}$", scope.display_id or "")
         if match:
             return match.group(1), int(match.group(2))
-        return "DEAL", date.today().year % 100
+        return "SCOPE", date.today().year % 100
 
     def _level_code(self, level: str | None, fallback_tier: str | None = None) -> str:
         value = (level or fallback_tier or "").strip().lower()
@@ -447,8 +447,8 @@ class CampaignGenerationService:
             return "G"
         return "B"
 
-    def _campaign_product_code(self, deal: Deal, line: DealProductLine) -> str:
-        first = self._product_family_code(deal, line.product_type)
+    def _campaign_product_code(self, scope: Scope, line: ScopeProductLine) -> str:
+        first = self._product_family_code(scope, line.product_type)
         second = self._level_code(line.tier)
         opts = line.options_json or {}
 
@@ -467,7 +467,7 @@ class CampaignGenerationService:
         if line.product_type == CampaignType.RESPONSE:
             raw = opts.get("lead_volume")
             if raw is None:
-                raise ValueError("Response campaigns require lead_volume in deal product line")
+                raise ValueError("Response campaigns require lead_volume in scope product line")
             leads = int(raw)
             if leads <= 0:
                 raise ValueError("lead_volume must be positive for Response campaigns")
@@ -476,8 +476,8 @@ class CampaignGenerationService:
         # Amplify and Display use XX by default.
         return f"{first}{second}XX"
 
-    def _product_family_code(self, deal: Deal, campaign_type: CampaignType) -> str:
-        if deal.brand_publication == PublicationName.TECHTELLIGENCE:
+    def _product_family_code(self, scope: Scope, campaign_type: CampaignType) -> str:
+        if scope.brand_publication == PublicationName.TECHTELLIGENCE:
             return "T"
         if campaign_type == CampaignType.DEMAND:
             return "D"
@@ -505,7 +505,7 @@ class CampaignGenerationService:
         self.db.flush()
         return created
 
-    def _resolve_modules(self, line: DealProductLine) -> list[str]:
+    def _resolve_modules(self, line: ScopeProductLine) -> list[str]:
         campaign_type = line.product_type
         if campaign_type == CampaignType.DEMAND:
             mode = ((line.options_json or {}).get("demand_module_mode") or "create_reach_capture").strip().lower()
@@ -520,7 +520,7 @@ class CampaignGenerationService:
             return ["capture"]
         return ["reach"]
 
-    def _resolve_deliverables(self, line: DealProductLine, include_lead_total: bool) -> list[DeliverableType]:
+    def _resolve_deliverables(self, line: ScopeProductLine, include_lead_total: bool) -> list[DeliverableType]:
         base: list[DeliverableType] = []
         campaign_type = line.product_type
         tier = line.tier
@@ -547,7 +547,7 @@ class CampaignGenerationService:
         return base
 
     @staticmethod
-    def _response_target_leads_for_line(line: DealProductLine) -> int | None:
+    def _response_target_leads_for_line(line: ScopeProductLine) -> int | None:
         raw = (line.options_json or {}).get("lead_volume")
         if raw is None:
             return None
@@ -567,13 +567,13 @@ class CampaignGenerationService:
             return f"{deliverable_type.value.replace('_', ' ').title()} (Sprint {sprint_number})"
         return f"{deliverable_type.value.replace('_', ' ').title()}"
 
-    def _deliverable_due_date(self, deal: Deal, deliverable_type: DeliverableType, sprint_start: date) -> date | None:
+    def _deliverable_due_date(self, scope: Scope, deliverable_type: DeliverableType, sprint_start: date) -> date | None:
         milestones = {name: target for name, target in self._tdtimeline_default_milestones(sprint_start)}
         milestones["reporting"] = milestones.get("report_available") or milestones.get("reporting")
         milestones["promoting"] = milestones.get("benchmark_met") or milestones.get("promoting")
         if deliverable_type == DeliverableType.LEAD_TOTAL:
-            if deal.sow_end_date:
-                return self.timeline.calendar.next_working_day_on_or_after(deal.sow_end_date)
+            if scope.sow_end_date:
+                return self.timeline.calendar.next_working_day_on_or_after(scope.sow_end_date)
             fallback = milestones.get("reporting") or (sprint_start + timedelta(days=89))
             return self.timeline.calendar.next_working_day_on_or_after(fallback)
 
@@ -939,16 +939,16 @@ class CampaignGenerationService:
         key = "content" if has_content else "non_content"
         return list(steps_by_sprint_legacy.get(key, []))
 
-    def _create_campaign_assignments(self, campaign: Campaign, deal: Deal) -> None:
+    def _create_campaign_assignments(self, campaign: Campaign, scope: Scope) -> None:
         default_cc_user_id = self._default_role_user_id(RoleName.CC)
         default_dn_user_id = self._default_role_user_id(RoleName.DN)
         default_mm_user_id = self._default_role_user_id(RoleName.MM)
         assignments: list[tuple[RoleName, str | None]] = [
-            (RoleName.AM, deal.am_user_id),
-            (RoleName.CM, deal.assigned_cm_user_id),
+            (RoleName.AM, scope.am_user_id),
+            (RoleName.CM, scope.assigned_cm_user_id),
             # Test default: always assign a CC to generated campaigns.
-            (RoleName.CC, deal.assigned_cc_user_id or default_cc_user_id),
-            (RoleName.CCS, deal.assigned_ccs_user_id),
+            (RoleName.CC, scope.assigned_cc_user_id or default_cc_user_id),
+            (RoleName.CCS, scope.assigned_ccs_user_id),
             (RoleName.DN, default_dn_user_id),
             (RoleName.MM, default_mm_user_id),
         ]
@@ -979,7 +979,7 @@ class CampaignGenerationService:
 
     def _create_deliverable_with_steps(
         self,
-        deal: Deal,
+        scope: Scope,
         campaign: Campaign,
         publication_id: str,
         deliverable_type: DeliverableType,
@@ -1003,8 +1003,8 @@ class CampaignGenerationService:
             title=self._deliverable_title(deliverable_type, sprint_number, lead_target),
             status=DeliverableStatus.PLANNED,
             current_start=campaign_start,
-            baseline_due=self._deliverable_due_date(deal, deliverable_type, campaign_start),
-            current_due=self._deliverable_due_date(deal, deliverable_type, campaign_start),
+            baseline_due=self._deliverable_due_date(scope, deliverable_type, campaign_start),
+            current_due=self._deliverable_due_date(scope, deliverable_type, campaign_start),
             internal_review_stall_threshold_days=internal_threshold,
             client_review_stall_threshold_days=client_threshold,
         )
@@ -1046,7 +1046,7 @@ class CampaignGenerationService:
     def _create_csv_stage_steps_for_campaign(
         self,
         campaign: Campaign,
-        line: DealProductLine,
+        line: ScopeProductLine,
         template: TemplateVersion,
         deliverables: list[Deliverable],
     ) -> None:
@@ -1268,7 +1268,7 @@ class CampaignGenerationService:
             return 1
         return 1
 
-    def _csv_row_applies_to_campaign(self, row: dict, campaign: Campaign, line: DealProductLine) -> bool:
+    def _csv_row_applies_to_campaign(self, row: dict, campaign: Campaign, line: ScopeProductLine) -> bool:
         applicability = row.get("applicability_by_product") or {}
         tier = str(campaign.tier or line.tier or "").strip().lower()
         if campaign.campaign_type == CampaignType.DEMAND:

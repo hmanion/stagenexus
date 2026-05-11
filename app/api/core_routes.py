@@ -17,10 +17,10 @@ from app.models.domain import (
     CapacityLedger,
     Client,
     ClientContact,
-    Deal,
-    DealAttachment,
-    DealProductLine,
-    DealStatus,
+    Scope,
+    ScopeAttachment,
+    ScopeProductLine,
+    ScopeStatus,
     Deliverable,
     DeliverableType,
     DeliverableStage,
@@ -71,9 +71,9 @@ from app.schemas.admin import (
     OpsDefaultsUpdateIn,
     RolePermissionsUpdateIn,
 )
-from app.schemas.deals import (
-    DealCreateIn,
-    DealOut,
+from app.schemas.scopes import (
+    ScopeCreateIn,
+    ScopeOut,
     OpsApproveIn,
     ScopeAmUpdateIn,
     ScopeContentUpdateIn,
@@ -102,7 +102,7 @@ from app.services.capacity_service import CapacityService
 from app.services.change_control_service import ChangeControlService
 from app.services.deliverable_workflow_service import DeliverableWorkflowService
 from app.services.deliverable_derivation_service import DeliverableDerivationService
-from app.services.deal_service import DealService
+from app.services.scope_service import ScopeService
 from app.services.milestone_service import MilestoneService
 from app.services.ops_job_service import OpsJobService
 from app.services.workflow_engine_service import WorkflowEngineService
@@ -701,7 +701,7 @@ def _delete_campaign_graph(db: Session, campaign_id: str) -> dict[str, int]:
     return deleted
 
 
-def _delete_scope_graph(db: Session, deal_id: str) -> dict[str, int]:
+def _delete_scope_graph(db: Session, scope_id: str) -> dict[str, int]:
     deleted = {
         "campaign_graph": 0,
         "campaigns": 0,
@@ -712,39 +712,39 @@ def _delete_scope_graph(db: Session, deal_id: str) -> dict[str, int]:
         "notes": 0,
         "scopes": 0,
     }
-    campaign_ids = db.scalars(select(Campaign.id).where(Campaign.deal_id == deal_id)).all()
+    campaign_ids = db.scalars(select(Campaign.id).where(Campaign.scope_id == scope_id)).all()
     for cid in campaign_ids:
         result = _delete_campaign_graph(db, cid)
         deleted["campaign_graph"] += sum(int(v or 0) for v in result.values())
         deleted["campaigns"] += int(result.get("campaigns", 0))
 
-    pl_res = db.execute(delete(DealProductLine).where(DealProductLine.deal_id == deal_id))
+    pl_res = db.execute(delete(ScopeProductLine).where(ScopeProductLine.scope_id == scope_id))
     deleted["product_lines"] += int(pl_res.rowcount or 0)
-    at_res = db.execute(delete(DealAttachment).where(DealAttachment.deal_id == deal_id))
+    at_res = db.execute(delete(ScopeAttachment).where(ScopeAttachment.scope_id == scope_id))
     deleted["attachments"] += int(at_res.rowcount or 0)
 
     activity_res = db.execute(
         delete(ActivityLog).where(
             ActivityLog.entity_type == "scope",
-            ActivityLog.entity_id == deal_id,
+            ActivityLog.entity_id == scope_id,
         )
     )
     deleted["activity_logs"] += int(activity_res.rowcount or 0)
     comments_res = db.execute(
         delete(Comment).where(
             Comment.entity_type == "scope",
-            Comment.entity_id == deal_id,
+            Comment.entity_id == scope_id,
         )
     )
     deleted["comments"] += int(comments_res.rowcount or 0)
     notes_res = db.execute(
         delete(Note).where(
             Note.entity_type == "scope",
-            Note.entity_id == deal_id,
+            Note.entity_id == scope_id,
         )
     )
     deleted["notes"] += int(notes_res.rowcount or 0)
-    scope_res = db.execute(delete(Deal).where(Deal.id == deal_id))
+    scope_res = db.execute(delete(Scope).where(Scope.id == scope_id))
     deleted["scopes"] += int(scope_res.rowcount or 0)
     return deleted
 
@@ -778,7 +778,7 @@ def dashboard_by_role(role: str, actor_user_id: str, db: Session = Depends(get_d
             seniority=actor.seniority,
             app_role=actor.app_role,
         )
-        for key in ("show_deals_pipeline", "show_capacity", "show_risks", "show_reviews", "show_admin")
+        for key in ("show_scopes_pipeline", "show_capacity", "show_risks", "show_reviews", "show_admin")
     }
     controls: set[str] = set()
     for control_id, rule in campaign_control_rules.items():

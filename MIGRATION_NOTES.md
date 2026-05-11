@@ -4,7 +4,7 @@
 This baseline introduces formal Alembic migration discipline while preserving migration-window compatibility objects needed by the running app.
 
 ## Canonical baseline schema
-- Core hierarchy: `Deal -> Campaign -> Stage -> WorkflowStep`.
+- Core hierarchy: `Scope -> Campaign -> Stage -> WorkflowStep`.
 - Campaign child records: `deliverables`, `product_modules`, `milestones`.
 - Included first-class current features: `review_windows`, `review_round_events`.
 - Identity/access, commercial setup, reference/config, risk/performance/capacity/audit tables are all part of baseline v1.

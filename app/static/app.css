@@ -136,7 +136,7 @@ body.screen-my-work {
   --screen-accent-soft: var(--amber-light);
 }
 
-body.screen-deals {
+body.screen-scopes {
   --screen-accent: var(--cobalt);
   --screen-accent-soft: var(--cobalt-light);
 }

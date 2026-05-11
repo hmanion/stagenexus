@@ -16,7 +16,7 @@ templates = Jinja2Templates(directory=Path(__file__).resolve().parents[1] / 'tem
 @router.get('/', response_class=HTMLResponse)
 @router.get('/home', response_class=HTMLResponse)
 @router.get('/my-work', response_class=HTMLResponse)
-@router.get('/deals', response_class=HTMLResponse)
+@router.get('/scopes', response_class=HTMLResponse)
 @router.get('/scopes', response_class=HTMLResponse)
 @router.get('/people', response_class=HTMLResponse)
 @router.get('/campaigns', response_class=HTMLResponse)

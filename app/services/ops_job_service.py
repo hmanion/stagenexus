@@ -11,7 +11,7 @@ from app.models.domain import (
     Campaign,
     CampaignAssignment,
     CapacityLedger,
-    Deal,
+    Scope,
     Deliverable,
     DeliverableStatus,
     DeliverableType,
@@ -92,16 +92,16 @@ class OpsJobService:
             return
         campaign_ids = sorted({d.campaign_id for d in deliverables if d.campaign_id})
         campaigns = {c.id: c for c in self.db.scalars(select(Campaign).where(Campaign.id.in_(campaign_ids))).all()}
-        deal_ids = sorted({c.deal_id for c in campaigns.values()})
-        deals = {d.id: d for d in self.db.scalars(select(Deal).where(Deal.id.in_(deal_ids))).all()}
+        scope_ids = sorted({c.scope_id for c in campaigns.values()})
+        scopes = {d.id: d for d in self.db.scalars(select(Scope).where(Scope.id.in_(scope_ids))).all()}
 
         for d in deliverables:
             campaign = campaigns.get(d.campaign_id) if d.campaign_id else None
             if not campaign:
                 continue
-            deal = deals.get(campaign.deal_id) if campaign else None
-            anchor_start = campaign.planned_start_date or deal.sow_start_date if deal else campaign.created_at.date()
-            due = self._default_deliverable_due(d.deliverable_type, anchor_start, deal.sow_end_date if deal else None)
+            scope = scopes.get(campaign.scope_id) if campaign else None
+            anchor_start = campaign.planned_start_date or scope.sow_start_date if scope else campaign.created_at.date()
+            due = self._default_deliverable_due(d.deliverable_type, anchor_start, scope.sow_end_date if scope else None)
             if d.baseline_due is None:
                 d.baseline_due = due
             if d.current_due is None:

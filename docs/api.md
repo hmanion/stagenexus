@@ -12,14 +12,14 @@ The current route surface covers the main operational areas below.
 
 Basic application health endpoint.
 
-## Deals
+## Scopes
 
-- `POST /api/deals`
-- `POST /api/deals/{deal_id}/submit`
-- `POST /api/deals/{deal_id}/ops-approve`
-- `POST /api/deals/{deal_id}/generate-campaigns`
+- `POST /api/scopes`
+- `POST /api/scopes/{scope_id}/submit`
+- `POST /api/scopes/{scope_id}/ops-approve`
+- `POST /api/scopes/{scope_id}/generate-campaigns`
 
-Some compatibility aliases may still exist for `/scopes` while the naming transition to `/deals` completes.
+Some compatibility aliases may still exist for `/scopes` while the naming transition to `/scopes` completes.
 
 ## Campaigns
 
@@ -79,10 +79,10 @@ Useful for recomputation or operational processing in development and support fl
 
 ## Example requests
 
-### Create deal
+### Create scope
 
 ```bash
-curl -X POST http://localhost:8000/api/deals \
+curl -X POST http://localhost:8000/api/scopes \
   -H "Content-Type: application/json" \
   -d '{
     "client_name":"Acme Corp",
@@ -95,16 +95,16 @@ curl -X POST http://localhost:8000/api/deals \
   }'
 ```
 
-### Submit deal
+### Submit scope
 
 ```bash
-curl -X POST http://localhost:8000/api/deals/<deal-id>/submit
+curl -X POST http://localhost:8000/api/scopes/<scope-id>/submit
 ```
 
 ### Ops approve
 
 ```bash
-curl -X POST http://localhost:8000/api/deals/<deal-id>/ops-approve \
+curl -X POST http://localhost:8000/api/scopes/<scope-id>/ops-approve \
   -H "Content-Type: application/json" \
   -d '{
     "head_ops_user_id":"<ops-user-id>",

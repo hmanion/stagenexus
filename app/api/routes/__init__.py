@@ -6,16 +6,16 @@ from sqlalchemy.orm import Session
 from app.api.core_routes import router as core_router
 from app.api.identifiers import resolve_by_identifier
 from app.api.routes.campaigns import router as campaigns_router
-from app.api.routes.deals import router as deals_router
+from app.api.routes.scopes import router as scopes_router
 from app.db.session import get_db
 from app.models.domain import Campaign, RoleName
-from app.schemas.deals import SowChangeCreateIn
+from app.schemas.scopes import SowChangeCreateIn
 from app.services.authz_service import AuthzService
 from app.services.change_control_service import ChangeControlService
 
 # Compatibility export for older imports that referenced `app.api.routes.router`.
 router = APIRouter()
-router.include_router(deals_router)
+router.include_router(scopes_router)
 router.include_router(campaigns_router)
 router.include_router(core_router)
 _resolve_by_identifier = resolve_by_identifier

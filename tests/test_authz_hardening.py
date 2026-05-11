@@ -16,12 +16,12 @@ from app.api.core_routes import (
 )
 from app.api.permissions import can_actor_approve_scope
 from app.api.router import router
-from app.api.routes.deals import generate_campaigns, update_scope_content
+from app.api.routes.scopes import generate_campaigns, update_scope_content
 from app.api.routes.campaigns import update_campaign_assignments
-from app.models.domain import AppAccessRole, DealStatus, RoleName, SeniorityLevel, TeamName
+from app.models.domain import AppAccessRole, ScopeStatus, RoleName, SeniorityLevel, TeamName
 from app.schemas.admin import AdminUserCreateIn
 from app.schemas.campaigns import CampaignAssignmentsUpdateIn
-from app.schemas.deals import ScopeContentUpdateIn, SowChangeApproveIn
+from app.schemas.scopes import ScopeContentUpdateIn, SowChangeApproveIn
 from app.schemas.deliverables import CapacityOverrideDecisionIn
 from app.schemas.risks import EscalationResolveIn
 from app.schemas.workflow import StepManageIn
@@ -140,12 +140,12 @@ class AuthzHardeningTests(unittest.TestCase):
             decide_capacity_override("CAP-1", payload, db=Mock())
         self.assertEqual(exc.exception.status_code, 403)
 
-    @patch("app.api.routes.deals.AuthzService")
-    @patch("app.api.routes.deals.get_deal_or_404")
-    def test_non_owner_cannot_update_protected_deal_fields(self, get_deal_or_404: Mock, authz_service_cls: Mock) -> None:
-        get_deal_or_404.return_value = SimpleNamespace(
-            id="deal-1",
-            display_id="DEAL-1",
+    @patch("app.api.routes.scopes.AuthzService")
+    @patch("app.api.routes.scopes.get_scope_or_404")
+    def test_non_owner_cannot_update_protected_scope_fields(self, get_scope_or_404: Mock, authz_service_cls: Mock) -> None:
+        get_scope_or_404.return_value = SimpleNamespace(
+            id="scope-1",
+            display_id="SCOPE-1",
             am_user_id="owner-1",
             client_id="client-1",
             icp=None,
@@ -154,23 +154,23 @@ class AuthzHardeningTests(unittest.TestCase):
         )
         authz_service = authz_service_cls.return_value
         authz_service.resolve_actor_identity.return_value = (_actor(user_id="user-2"), "user-2")
-        authz_service.can_update_deal.return_value = False
+        authz_service.can_update_scope.return_value = False
         payload = ScopeContentUpdateIn(actor_user_id="user-2", icp="x")
         with self.assertRaises(HTTPException) as exc:
-            update_scope_content("DEAL-1", payload, db=Mock())
+            update_scope_content("SCOPE-1", payload, db=Mock())
         self.assertEqual(exc.exception.status_code, 403)
 
-    @patch("app.api.routes.deals.AuthzService")
-    @patch("app.api.routes.deals.get_deal_or_404")
-    @patch("app.api.routes.deals.get_actor")
+    @patch("app.api.routes.scopes.AuthzService")
+    @patch("app.api.routes.scopes.get_scope_or_404")
+    @patch("app.api.routes.scopes.get_actor")
     def test_campaign_generation_blocked_for_unauthorized_actor(
-        self, get_actor: Mock, get_deal_or_404: Mock, authz_service_cls: Mock
+        self, get_actor: Mock, get_scope_or_404: Mock, authz_service_cls: Mock
     ) -> None:
-        get_deal_or_404.return_value = SimpleNamespace(status=DealStatus.READINESS_PASSED)
+        get_scope_or_404.return_value = SimpleNamespace(status=ScopeStatus.READINESS_PASSED)
         get_actor.return_value = _actor(primary_team=TeamName.SALES, seniority=SeniorityLevel.STANDARD)
-        with patch("app.api.routes.deals.can_actor_generate_campaigns", return_value=False):
+        with patch("app.api.routes.scopes.can_actor_generate_campaigns", return_value=False):
             with self.assertRaises(HTTPException) as exc:
-                generate_campaigns("DEAL-1", actor_user_id="user-2", db=Mock())
+                generate_campaigns("SCOPE-1", actor_user_id="user-2", db=Mock())
         self.assertEqual(exc.exception.status_code, 403)
 
     @patch("app.api.core_routes.AuthzService")

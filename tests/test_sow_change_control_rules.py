@@ -2,27 +2,27 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.models.domain import ApprovalStatus, Campaign, CampaignType, Deal, DealStatus, PublicationName, RoleName, SowChangeApproval
+from app.models.domain import ApprovalStatus, Campaign, CampaignType, Scope, ScopeStatus, PublicationName, RoleName, SowChangeApproval
 from app.services.change_control_service import ChangeControlService
 
 
 def _seed_campaign(db_session) -> Campaign:
-    deal = Deal(
-        display_id="DEAL-900",
+    scope = Scope(
+        display_id="SCOPE-900",
         client_id="client-1",
         am_user_id="am-1",
         brand_publication=PublicationName.UC_TODAY,
-        status=DealStatus.READINESS_PASSED,
+        status=ScopeStatus.READINESS_PASSED,
         icp="ICP",
         campaign_objective="Objective",
         messaging_positioning="Message",
         readiness_passed=True,
     )
-    db_session.add(deal)
+    db_session.add(scope)
     db_session.flush()
     campaign = Campaign(
         display_id="CAMP-900",
-        deal_id=deal.id,
+        scope_id=scope.id,
         template_version_id="tpl-1",
         campaign_type=CampaignType.DEMAND,
         tier="gold",

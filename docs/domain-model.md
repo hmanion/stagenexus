@@ -14,7 +14,7 @@ It does not try to describe the lifecycle workflow, approval rights, or planning
 
 The clearest current structural model is:
 
-`Deal -> Campaign -> Stage -> Step`
+`Scope -> Campaign -> Stage -> Step`
 
 Deliverables are campaign children that can be linked to steps, but they are not the parent of steps.
 
@@ -22,7 +22,7 @@ This is the cleanest way to reconcile the repo notes that sometimes use terms su
 
 ## Core entities
 
-### Deal
+### Scope
 The commercial and operational setup object.
 
 Typical responsibilities:
@@ -33,10 +33,10 @@ Typical responsibilities:
 - moves through submission and ops approval
 - acts as the parent source for campaign generation
 
-A deal must pass the readiness gate before campaigns can be generated.
+A scope must pass the readiness gate before campaigns can be generated.
 
 ### Campaign
-A delivery container generated from a deal.
+A delivery container generated from a scope.
 
 Typical responsibilities:
 
@@ -120,7 +120,7 @@ The repository and notes indicate additional domain families such as:
 
 ### Parent-child relationships
 
-- a deal generates one or more campaigns
+- a scope generates one or more campaigns
 - a campaign contains stages
 - a campaign contains deliverables
 - a stage contains steps

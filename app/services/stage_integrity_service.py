@@ -12,7 +12,7 @@ from app.models.domain import (
     Campaign,
     CampaignAssignment,
     CampaignType,
-    DealProductLine,
+    ScopeProductLine,
     Deliverable,
     DeliverableType,
     GlobalHealth,
@@ -287,13 +287,13 @@ class StageIntegrityService:
             return
 
         line = self.db.scalar(
-            select(DealProductLine)
+            select(ScopeProductLine)
             .where(
-                DealProductLine.deal_id == campaign.deal_id,
-                DealProductLine.product_type == campaign.campaign_type,
-                DealProductLine.tier == campaign.tier,
+                ScopeProductLine.scope_id == campaign.scope_id,
+                ScopeProductLine.product_type == campaign.campaign_type,
+                ScopeProductLine.tier == campaign.tier,
             )
-            .order_by(DealProductLine.created_at.asc())
+            .order_by(ScopeProductLine.created_at.asc())
         )
         if not line:
             return
@@ -504,7 +504,7 @@ class StageIntegrityService:
             # Guard against duplicate pairs queued within the same transaction flush.
             existing.add(pair)
 
-    def _row_applies_to_campaign(self, row: dict, campaign: Campaign, line: DealProductLine) -> bool:
+    def _row_applies_to_campaign(self, row: dict, campaign: Campaign, line: ScopeProductLine) -> bool:
         applicability = row.get("applicability_by_product") or {}
         tier = str(campaign.tier or line.tier or "").strip().lower()
         if campaign.campaign_type == CampaignType.DEMAND:

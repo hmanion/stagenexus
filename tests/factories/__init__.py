@@ -1,7 +1,7 @@
 from .builders import (
     build_campaign,
     build_capacity_ledger,
-    build_deal,
+    build_scope,
     build_deliverable,
     build_milestone,
     build_sow_change_request,
@@ -9,7 +9,7 @@ from .builders import (
 )
 
 __all__ = [
-    "build_deal",
+    "build_scope",
     "build_campaign",
     "build_deliverable",
     "build_workflow_step",

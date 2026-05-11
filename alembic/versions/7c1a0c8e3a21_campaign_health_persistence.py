@@ -23,13 +23,13 @@ def upgrade() -> None:
 
     op.create_index("ix_campaigns_created_at", "campaigns", ["created_at"], unique=False)
     op.create_index("ix_campaigns_status_created_at", "campaigns", ["status", "created_at"], unique=False)
-    op.create_index("ix_campaigns_deal_id", "campaigns", ["deal_id"], unique=False)
+    op.create_index("ix_campaigns_scope_id", "campaigns", ["scope_id"], unique=False)
     op.create_index("ix_campaign_assignments_campaign_id", "campaign_assignments", ["campaign_id"], unique=False)
 
 
 def downgrade() -> None:
     op.drop_index("ix_campaign_assignments_campaign_id", table_name="campaign_assignments")
-    op.drop_index("ix_campaigns_deal_id", table_name="campaigns")
+    op.drop_index("ix_campaigns_scope_id", table_name="campaigns")
     op.drop_index("ix_campaigns_status_created_at", table_name="campaigns")
     op.drop_index("ix_campaigns_created_at", table_name="campaigns")
 

@@ -12,8 +12,8 @@ from app.models.domain import (
     Campaign,
     CampaignAssignment,
     CampaignType,
-    Deal,
-    DealProductLine,
+    Scope,
+    ScopeProductLine,
     Deliverable,
     DeliverableStatus,
     DeliverableType,
@@ -514,17 +514,17 @@ def run_backfill() -> BackfillStats:
 
 def _response_lead_volume_for_campaign(db, campaign: Campaign) -> int | None:
     lines = db.scalars(
-        select(DealProductLine).where(
-            DealProductLine.deal_id == campaign.deal_id,
-            DealProductLine.product_type == campaign.campaign_type,
-            DealProductLine.tier == campaign.tier,
+        select(ScopeProductLine).where(
+            ScopeProductLine.scope_id == campaign.scope_id,
+            ScopeProductLine.product_type == campaign.campaign_type,
+            ScopeProductLine.tier == campaign.tier,
         )
     ).all()
     if not lines:
         lines = db.scalars(
-            select(DealProductLine).where(
-                DealProductLine.deal_id == campaign.deal_id,
-                DealProductLine.product_type == campaign.campaign_type,
+            select(ScopeProductLine).where(
+                ScopeProductLine.scope_id == campaign.scope_id,
+                ScopeProductLine.product_type == campaign.campaign_type,
             )
         ).all()
     for line in lines:
@@ -555,8 +555,8 @@ def _ensure_response_lead_total_deliverables(db, public_ids: PublicIdService, st
                 Deliverable.deliverable_type == DeliverableType.LEAD_TOTAL,
             )
         )
-        deal = db.get(Deal, campaign.deal_id)
-        due_date = deal.sow_end_date if deal and deal.sow_end_date else None
+        scope = db.get(Scope, campaign.scope_id)
+        due_date = scope.sow_end_date if scope and scope.sow_end_date else None
         if existing:
             existing.baseline_due = due_date
             existing.current_due = due_date

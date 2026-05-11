@@ -12,7 +12,7 @@ from app.models.domain import (
     CampaignAssignment,
     CampaignType,
     Client,
-    Deal,
+    Scope,
     Deliverable,
     DeliverableStatus,
     DeliverableType,
@@ -46,9 +46,9 @@ def _seed_campaign_graph(db_session, *, campaign_id: str = "campaign-1", display
         version=max(len(suffix), 1),
         workflow_json={},
     )
-    deal = Deal(
-        id=f"deal-{suffix}",
-        display_id=f"DEAL-{suffix}",
+    scope = Scope(
+        id=f"scope-{suffix}",
+        display_id=f"SCOPE-{suffix}",
         client_id=client.id,
         am_user_id=user.id,
         brand_publication=PublicationName.UC_TODAY,
@@ -58,7 +58,7 @@ def _seed_campaign_graph(db_session, *, campaign_id: str = "campaign-1", display
     campaign = Campaign(
         id=campaign_id,
         display_id=display_id,
-        deal_id=deal.id,
+        scope_id=scope.id,
         template_version_id=template.id,
         campaign_type=CampaignType.DEMAND,
         tier="gold",
@@ -76,7 +76,7 @@ def _seed_campaign_graph(db_session, *, campaign_id: str = "campaign-1", display
         user_id=user.id,
     )
 
-    db_session.add_all([user, client, template, deal, campaign, assignment])
+    db_session.add_all([user, client, template, scope, campaign, assignment])
     if publication is not None and db_session.get(Publication, publication.id) is None:
         db_session.add(publication)
     db_session.commit()

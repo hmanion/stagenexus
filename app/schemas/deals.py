@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class DealProductLineIn(BaseModel):
+class ScopeProductLineIn(BaseModel):
     product_type: str
     tier: str
     options_json: dict[str, Any] = Field(default_factory=dict)
@@ -16,18 +16,18 @@ class DealProductLineIn(BaseModel):
     lead_volume: int | None = None
 
 
-class DealClientContactIn(BaseModel):
+class ScopeClientContactIn(BaseModel):
     name: str
     email: str
     title: str | None = None
 
 
-class DealAttachmentIn(BaseModel):
+class ScopeAttachmentIn(BaseModel):
     file_name: str
     storage_key: str
 
 
-class DealCreateIn(BaseModel):
+class ScopeCreateIn(BaseModel):
     client_name: str
     brand_publication: str
     am_user_id: str
@@ -37,12 +37,12 @@ class DealCreateIn(BaseModel):
     campaign_objective: str | None = None
     messaging_positioning: str | None = None
     commercial_notes: str | None = None
-    client_contacts: list[DealClientContactIn] = Field(default_factory=list)
-    attachments: list[DealAttachmentIn] = Field(default_factory=list)
-    product_lines: list[DealProductLineIn]
+    client_contacts: list[ScopeClientContactIn] = Field(default_factory=list)
+    attachments: list[ScopeAttachmentIn] = Field(default_factory=list)
+    product_lines: list[ScopeProductLineIn]
 
 
-class DealOut(BaseModel):
+class ScopeOut(BaseModel):
     id: str
     status: str
     client_name: str | None = None

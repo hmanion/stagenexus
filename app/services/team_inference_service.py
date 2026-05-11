@@ -22,8 +22,8 @@ class TeamInferenceService:
             return f"editorial:{sub}"
         return "editorial"
 
-    def infer_scope_team_key(self, deal_id: str) -> str | None:
-        campaigns = self.db.scalars(select(Campaign).where(Campaign.deal_id == deal_id)).all()
+    def infer_scope_team_key(self, scope_id: str) -> str | None:
+        campaigns = self.db.scalars(select(Campaign).where(Campaign.scope_id == scope_id)).all()
         if not campaigns:
             return None
         campaign_ids = [c.id for c in campaigns]

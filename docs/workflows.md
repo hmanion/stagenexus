@@ -8,20 +8,20 @@ It does not define the object hierarchy in detail. For structure, see `domain-mo
 
 ## Main lifecycle
 
-The main operational workflow starts with a deal and ends in active campaign execution.
+The main operational workflow starts with a scope and ends in active campaign execution.
 
-`Create deal -> Submit deal -> Ops approval -> Readiness check -> Generate campaigns -> Execute campaigns`
+`Create scope -> Submit scope -> Ops approval -> Readiness check -> Generate campaigns -> Execute campaigns`
 
-## Deal to campaign lifecycle
+## Scope to campaign lifecycle
 
-### 1. Create deal
-A deal is created with client, commercial dates, campaign objective, positioning, and product line information.
+### 1. Create scope
+A scope is created with client, commercial dates, campaign objective, positioning, and product line information.
 
-### 2. Submit deal
-The deal is moved into a submitted state for operational review.
+### 2. Submit scope
+The scope is moved into a submitted state for operational review.
 
 ### 3. Ops approval and readiness check
-Operations assigns the key delivery roles and checks that the deal is ready for campaign generation.
+Operations assigns the key delivery roles and checks that the scope is ready for campaign generation.
 
 Typical role assignments during this stage include:
 
@@ -32,7 +32,7 @@ Typical role assignments during this stage include:
 Campaign generation is blocked unless readiness passes.
 
 ### 4. Generate campaigns
-The app generates campaigns from the approved deal, pins the template version, and creates the relevant execution structure.
+The app generates campaigns from the approved scope, pins the template version, and creates the relevant execution structure.
 
 ### 5. Execute campaigns
 Users work through deliverables and steps, monitor risks and capacity, and manage ongoing operational status.
@@ -113,8 +113,8 @@ Status override reset behaviour:
 ## Example API sequence
 
 ```bash
-# Create deal
-curl -X POST http://localhost:8000/api/deals \
+# Create scope
+curl -X POST http://localhost:8000/api/scopes \
   -H "Content-Type: application/json" \
   -d '{
     "client_name":"Acme Corp",
@@ -126,11 +126,11 @@ curl -X POST http://localhost:8000/api/deals \
     "product_lines":[{"product_type":"demand","tier":"silver","options_json":{}}]
   }'
 
-# Submit deal
-curl -X POST http://localhost:8000/api/deals/<deal-id>/submit
+# Submit scope
+curl -X POST http://localhost:8000/api/scopes/<scope-id>/submit
 
 # Ops approve
-curl -X POST http://localhost:8000/api/deals/<deal-id>/ops-approve \
+curl -X POST http://localhost:8000/api/scopes/<scope-id>/ops-approve \
   -H "Content-Type: application/json" \
   -d '{
     "head_ops_user_id":"<ops-user-id>",
@@ -139,5 +139,5 @@ curl -X POST http://localhost:8000/api/deals/<deal-id>/ops-approve \
   }'
 
 # Generate campaigns
-curl -X POST http://localhost:8000/api/deals/<deal-id>/generate-campaigns
+curl -X POST http://localhost:8000/api/scopes/<scope-id>/generate-campaigns
 ```

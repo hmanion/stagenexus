@@ -8,8 +8,8 @@ from app.models.domain import (
     Campaign,
     CampaignType,
     CapacityLedger,
-    Deal,
-    DealStatus,
+    Scope,
+    ScopeStatus,
     ManualRisk,
     PublicationName,
     RiskSeverity,
@@ -25,23 +25,23 @@ from app.services.ops_job_service import OpsJobService
 
 
 def _seed_campaign_and_stage(db_session) -> tuple[Campaign, Stage]:
-    deal = Deal(
-        display_id="DEAL-CAP-1",
+    scope = Scope(
+        display_id="SCOPE-CAP-1",
         client_id="client-1",
         am_user_id="am-1",
         brand_publication=PublicationName.UC_TODAY,
-        status=DealStatus.READINESS_PASSED,
+        status=ScopeStatus.READINESS_PASSED,
         icp="ICP",
         campaign_objective="Objective",
         messaging_positioning="Message",
         readiness_passed=True,
     )
-    db_session.add(deal)
+    db_session.add(scope)
     db_session.flush()
 
     campaign = Campaign(
         display_id="CAMP-CAP-1",
-        deal_id=deal.id,
+        scope_id=scope.id,
         template_version_id="tpl-1",
         campaign_type=CampaignType.DEMAND,
         tier="gold",
