@@ -348,11 +348,24 @@ class Campaign(Base, TimestampMixin):
     )
     status_overridden_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     status_overridden_at: Mapped[datetime | None] = mapped_column(DateTime)
+    health: Mapped[GlobalHealth] = mapped_column(
+        Enum(GlobalHealth, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
+        default=GlobalHealth.NOT_STARTED,
+        nullable=False,
+    )
+    health_reason: Mapped[str | None] = mapped_column(String(128))
+    health_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
     planned_start_date: Mapped[date | None] = mapped_column(Date)
     planned_end_date: Mapped[date | None] = mapped_column(Date)
     is_demand_sprint: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     demand_sprint_number: Mapped[int | None] = mapped_column(Integer)
     demand_track: Mapped[str | None] = mapped_column(String(32))
+
+    __table_args__ = (
+        Index("ix_campaigns_created_at", "created_at"),
+        Index("ix_campaigns_status_created_at", "status", "created_at"),
+        Index("ix_campaigns_deal_id", "deal_id"),
+    )
 
 
 class CampaignAssignment(Base, TimestampMixin):
@@ -362,6 +375,8 @@ class CampaignAssignment(Base, TimestampMixin):
     campaign_id: Mapped[str] = mapped_column(ForeignKey("campaigns.id"), nullable=False)
     role_name: Mapped[RoleName] = mapped_column(Enum(RoleName), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    __table_args__ = (Index("ix_campaign_assignments_campaign_id", "campaign_id"),)
 
 
 class Sprint(Base, TimestampMixin):

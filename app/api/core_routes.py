@@ -109,6 +109,8 @@ from app.services.workflow_engine_service import WorkflowEngineService
 from app.services.id_service import PublicIdService
 from app.services.my_work_queue_service import MyWorkQueueService
 from app.services.calendar_service import build_default_working_calendar
+from app.services.campaign_health_updater import refresh_campaign_health
+from app.services.campaign_health_updater import refresh_many_campaign_health
 from app.services.ops_defaults_service import OpsDefaultsService
 from app.services.campaign_health_service import CampaignHealthService
 from app.services.timeline_health_service import TimelineHealthService
@@ -1280,6 +1282,8 @@ def decide_sow_change_request(request_id: str, payload: SowChangeApproveIn, acto
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if req.campaign_id:
+        refresh_campaign_health(db, req.campaign_id)
     db.commit()
     return {"id": req.display_id, "status": req.status, "activated_at": req.activated_at}
 
@@ -1306,6 +1310,7 @@ def mark_ready_to_publish(deliverable_id: str, actor_user_id: str, db: Session =
     deliverable.status = DeliverableStatus.READY_TO_PUBLISH
     deliverable.ready_to_publish_by_user_id = actor_user_id
     deliverable.ready_to_publish_at = datetime.utcnow()
+    refresh_campaign_health(db, campaign.id)
     db.commit()
     return {
         "deliverable_id": deliverable.id,
@@ -1536,6 +1541,23 @@ def run_ops_risk_capacity_job(actor_user_id: str, db: Session = Depends(get_db))
         "over_capacity_rows": summary.over_capacity_rows,
         "system_risks_opened_or_updated": summary.system_risks_opened_or_updated,
         "escalations_opened": summary.escalations_opened,
+    }
+
+
+@router.post("/jobs/recalculate-campaign-health")
+def recalculate_campaign_health(actor_user_id: str, db: Session = Depends(get_db)):
+    authz = AuthzService(db)
+    actor = authz.actor(actor_user_id)
+    if not authz.can_run_ops_job(actor):
+        raise HTTPException(status_code=403, detail="insufficient role permissions")
+
+    campaign_ids = list(db.scalars(select(Campaign.id)).all())
+    updated = refresh_many_campaign_health(db, campaign_ids)
+    db.commit()
+    return {
+        "processed": len(campaign_ids),
+        "updated": updated,
+        "failed": max(len(campaign_ids) - updated, 0),
     }
 
 

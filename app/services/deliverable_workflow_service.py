@@ -24,6 +24,7 @@ from app.models.domain import (
     WorkflowStep,
 )
 from app.services.calendar_service import build_default_working_calendar
+from app.services.campaign_health_updater import refresh_campaign_health
 from app.services.id_service import PublicIdService
 from app.services.ops_defaults_service import OpsDefaultsService
 
@@ -103,6 +104,8 @@ class DeliverableWorkflowService:
                 meta_json={"comment": comment or ""},
             )
             )
+        if deliverable.campaign_id:
+            refresh_campaign_health(self.db, deliverable.campaign_id)
         return deliverable
 
     def increment_round(

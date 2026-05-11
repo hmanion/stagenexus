@@ -546,6 +546,14 @@ const LIST_ROWS_CACHE = {
   campaigns: [],
   deals: [],
 };
+const CAMPAIGN_WORKSPACE_CACHE = new Map();
+const CAMPAIGN_LIST_LOADING_KEYS = new Set();
+let renderCampaignsRequestSeq = 0;
+let renderCampaignsAbortController = null;
+let renderCampaignsDebounceTimer = null;
+let currentCampaignsOffset = 0;
+const CAMPAIGNS_PAGE_SIZE = 50;
+let currentCampaignsTotal = 0;
 const MODULE_EDIT_STATE = {};
 
 function normalizeCardModuleConfig(raw) {
@@ -1006,7 +1014,8 @@ function listOptionsMenuHtml(row) {
 function listRowHtml(row, depth = 0) {
   const moduleType = String(row?.module_type || '').toLowerCase();
   const rowKey = String(row?.row_key || `${moduleType}:${row?.id || row?.title || Math.random()}`);
-  const hasChildren = Array.isArray(row?.children) && row.children.length > 0;
+  const hasChildren = (Array.isArray(row?.children) && row.children.length > 0) || !!row?.has_lazy_children;
+  const isLoadingChildren = CAMPAIGN_LIST_LOADING_KEYS.has(rowKey) || !!row?.is_loading_children;
   const expanded = hasChildren && LIST_EXPANDED_ROW_KEYS.has(rowKey);
   const title = String(listObjectValue(row, 'title') || row?.title || row?.name || row?.id || '-');
   const status = normalizeStatusValue(listObjectValue(row, 'status') || row?.status || '');
@@ -1057,6 +1066,9 @@ function listRowHtml(row, depth = 0) {
         </div>
       `;
   if (!(expanded && hasChildren)) return currentRow;
+  if (isLoadingChildren) {
+    return `${currentRow}<div class='list-module-row depth-${Math.min(Math.max(Number(depth || 0) + 1, 0), 3)}'><div class='sub'>Loading campaign details...</div></div>`;
+  }
   const childrenHtml = row.children.map(child => listRowHtml(child, depth + 1)).join('');
   return `${currentRow}${childrenHtml}`;
 }
@@ -1882,7 +1894,7 @@ function effortAllocationsHtml(efforts) {
 }
 
 async function loadCampaignHealthIndex() {
-  const data = await api('/api/campaigns/health?limit=500&offset=0');
+  const data = await api('/api/campaigns/health');
   const index = {};
   for (const item of (data.items || [])) {
     index[item.campaign_id] = item;
@@ -3893,7 +3905,7 @@ async function renderMyWork(role, actorId) {
   }
   myWorkCache = await api(`/api/my-work?actor_user_id=${encodeURIComponent(actorId)}&role=${encodeURIComponent(role)}&include_mode=${encodeURIComponent(includeMode)}`);
   try {
-    const health = await api(`/api/campaigns/health?owner=${encodeURIComponent(actorId)}&limit=500&offset=0`);
+    const health = await api(`/api/campaigns/health?owner=${encodeURIComponent(actorId)}`);
     campaignHealthByCampaignId = {};
     for (const item of (health.items || [])) {
       campaignHealthByCampaignId[item.campaign_id] = item;
@@ -4719,6 +4731,19 @@ async function api(path, options = {}) {
   return body;
 }
 
+function findCampaignRowInListRows(rows = [], campaignId = '') {
+  const target = String(campaignId || '').trim();
+  if (!target) return null;
+  for (const row of rows || []) {
+    if (String(row?.module_type || '').toLowerCase() === 'campaign' && String(row?.id || '').trim() === target) return row;
+    if (Array.isArray(row?.children)) {
+      const nested = findCampaignRowInListRows(row.children, target);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 async function fetchUsers() {
   const deals = await api('/api/deals');
   if (deals.items.length === 0) return;
@@ -5247,15 +5272,15 @@ function buildScopeListRows(scopes = [], workspaceMap = {}) {
 function buildCampaignRows(campaignItems = [], workspaceMap = {}) {
   const stageKey = (value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
   return (campaignItems || []).map(campaign => {
-    const ws = workspaceMap[campaign.id] || {};
+    const ws = workspaceMap[campaign.id] || null;
     const campaignAssignedUsers = Array.isArray(campaign?.assigned_users) ? campaign.assigned_users : [];
     const campaignOwner = campaignAssignedUsers.find(u => String(u?.role || '').toLowerCase().trim() === 'cm') || null;
     const campaignOwnerName = String(campaignOwner?.name || '').trim();
     const campaignOwnerInitials = String(campaignOwner?.initials || initialsFromName(campaignOwnerName || '') || '--').trim() || '--';
     const campaignOwnerUserId = String(campaignOwner?.user_id || campaignOwner?.id || '').trim();
-    const stages = Array.isArray(ws.stages) ? ws.stages : [];
-    const deliverables = Array.isArray(ws.deliverables?.items) ? ws.deliverables.items : [];
-    const steps = Array.isArray(ws.workflow_steps?.items) ? ws.workflow_steps.items : [];
+    const stages = Array.isArray(ws?.stages) ? ws.stages : [];
+    const deliverables = Array.isArray(ws?.deliverables?.items) ? ws.deliverables.items : [];
+    const steps = Array.isArray(ws?.workflow_steps?.items) ? ws.workflow_steps.items : [];
     const stageRows = stages.map(stage => {
       const stageNameKey = stageKey(stage?.name || '');
       const stageId = String(stage?.id || '').trim();
@@ -5344,7 +5369,8 @@ function buildCampaignRows(campaignItems = [], workspaceMap = {}) {
       scope_id: campaign.scope_id || '',
       context_id: campaign.scope_id || '',
       progress_statuses: stages.map(s => normalizeStatusValue(s.status || 'not_started')),
-      children: [...stageRows, ...deliverableRows],
+      children: ws ? [...stageRows, ...deliverableRows] : [],
+      has_lazy_children: !ws,
     };
   });
 }
@@ -5372,18 +5398,7 @@ async function renderDeals() {
     const matchCampaign = campaigns.some(c => String(c?.type || '').toLowerCase() === productFilter);
     return matchLine || matchCampaign;
   });
-  const allCampaigns = items.flatMap(scope => Array.isArray(scope?.campaigns) ? scope.campaigns : []);
-  const workspaceEntries = await Promise.all(allCampaigns.map(async (campaign) => {
-    const cid = String(campaign?.id || campaign?.campaign_id || '').trim();
-    if (!cid) return [cid, null];
-    try {
-      const ws = await api(`/api/campaigns/${encodeURIComponent(cid)}/workspace`);
-      return [cid, ws];
-    } catch (_) {
-      return [cid, null];
-    }
-  }));
-  const workspaceMap = Object.fromEntries(workspaceEntries.filter(([k]) => !!k));
+  const workspaceMap = Object.fromEntries(Array.from(CAMPAIGN_WORKSPACE_CACHE.entries()));
   const rows = buildScopeListRows(items, workspaceMap);
   LIST_ROWS_CACHE.deals = rows;
   renderListModule('dealsBody', rows);
@@ -5578,18 +5593,56 @@ function revealListTarget(target) {
   }
 }
 
+async function ensureCampaignChildrenLoaded(campaignId, parentScreen = 'campaigns') {
+  const id = String(campaignId || '').trim();
+  if (!id) return null;
+  if (CAMPAIGN_WORKSPACE_CACHE.has(id)) return CAMPAIGN_WORKSPACE_CACHE.get(id);
+  const cacheRows = parentScreen === 'deals' ? LIST_ROWS_CACHE.deals : LIST_ROWS_CACHE.campaigns;
+  const campaignRow = findCampaignRowInListRows(cacheRows, id);
+  if (!campaignRow) return null;
+  campaignRow.is_loading_children = true;
+  CAMPAIGN_LIST_LOADING_KEYS.add(rowKeyFor('campaign', id));
+  renderListModule(parentScreen === 'deals' ? 'dealsBody' : 'campaignsBody', cacheRows);
+  const ws = await api(`/api/campaigns/${encodeURIComponent(id)}/workspace`);
+  CAMPAIGN_WORKSPACE_CACHE.set(id, ws);
+  const patchRows = buildCampaignRows([{
+    id: campaignRow.id,
+    title: campaignRow.title,
+    status: campaignRow.status,
+    health: campaignRow.health,
+    timeframe_start: campaignRow.timeframe_start,
+    timeframe_due: campaignRow.timeframe_due,
+    assigned_users: campaignRow.participants.map(p => ({ user_id: p.id, initials: p.initials, name: p.name, role: p.role || '' })),
+    scope_id: campaignRow.scope_id || '',
+    type: '',
+  }], { [id]: ws });
+  campaignRow.children = patchRows[0]?.children || [];
+  campaignRow.has_lazy_children = false;
+  campaignRow.is_loading_children = false;
+  CAMPAIGN_LIST_LOADING_KEYS.delete(rowKeyFor('campaign', id));
+  renderListModule(parentScreen === 'deals' ? 'dealsBody' : 'campaignsBody', cacheRows);
+  return ws;
+}
+
 function toggleListRow(rowKey) {
   const key = String(rowKey || '').trim();
   if (!key) return;
+  const [moduleType, objectId] = key.split(':', 2);
   if (LIST_EXPANDED_ROW_KEYS.has(key)) LIST_EXPANDED_ROW_KEYS.delete(key);
   else LIST_EXPANDED_ROW_KEYS.add(key);
   const screen = String(currentScreen || '').toLowerCase();
   if (screen === 'campaigns' && Array.isArray(LIST_ROWS_CACHE.campaigns) && LIST_ROWS_CACHE.campaigns.length) {
+    if (moduleType === 'campaign' && LIST_EXPANDED_ROW_KEYS.has(key)) {
+      ensureCampaignChildrenLoaded(objectId, 'campaigns').catch(err => toast(`Failed to load campaign details: ${String(err)}`, 'error'));
+    }
     renderListModule('campaignsBody', LIST_ROWS_CACHE.campaigns);
     requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('campaignsBody') || document));
     return;
   }
   if ((screen === 'deals' || screen === 'scopes') && Array.isArray(LIST_ROWS_CACHE.deals) && LIST_ROWS_CACHE.deals.length) {
+    if (moduleType === 'campaign' && LIST_EXPANDED_ROW_KEYS.has(key)) {
+      ensureCampaignChildrenLoaded(objectId, 'deals').catch(err => toast(`Failed to load campaign details: ${String(err)}`, 'error'));
+    }
     renderListModule('dealsBody', LIST_ROWS_CACHE.deals);
     requestAnimationFrame(() => applyModuleLayoutRules(document.getElementById('dealsBody') || document));
     return;
@@ -5759,12 +5812,42 @@ async function runCampaignAwareRefresh(refreshFn) {
 }
 
 async function renderCampaigns() {
+  const requestId = ++renderCampaignsRequestSeq;
+  if (renderCampaignsAbortController) renderCampaignsAbortController.abort();
+  renderCampaignsAbortController = new AbortController();
+  const startedAt = performance.now();
+  let apiCalls = 0;
+  const apiWithMetrics = async (path, options = {}) => {
+    apiCalls += 1;
+    return api(path, { ...options, signal: renderCampaignsAbortController.signal });
+  };
   const params = new URLSearchParams();
   if (currentActorId) params.set('actor_user_id', currentActorId);
-  params.set('limit', '500');
-  params.set('offset', '0');
+  params.set('limit', String(CAMPAIGNS_PAGE_SIZE));
+  params.set('offset', String(currentCampaignsOffset));
+  const deepTarget = campaignDeepLinkTargetFromUrl();
+  let statusFilter = getFilterValue('qCampaigns');
+  if (deepTarget && statusFilter !== 'all') {
+    if (campaignFilterBeforeForceReveal == null) campaignFilterBeforeForceReveal = statusFilter;
+    const filterEl = document.getElementById('qCampaigns');
+    if (filterEl) filterEl.value = 'all';
+    statusFilter = 'all';
+  }
+  if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
 
-  const data = await api(`/api/campaigns?${params.toString()}`);
+  let data;
+  try {
+    data = await apiWithMetrics(`/api/campaigns?${params.toString()}`);
+  } catch (err) {
+    if (err && String(err.name || '').toLowerCase() === 'aborterror') return [];
+    throw err;
+  }
+  if (requestId !== renderCampaignsRequestSeq) return [];
+  currentCampaignsTotal = Number(data.total || 0);
+  if (currentCampaignsOffset > 0 && currentCampaignsOffset >= currentCampaignsTotal) {
+    currentCampaignsOffset = Math.max(0, Math.floor(Math.max(0, currentCampaignsTotal - 1) / CAMPAIGNS_PAGE_SIZE) * CAMPAIGNS_PAGE_SIZE);
+    return renderCampaigns();
+  }
   campaignHealthByCampaignId = {};
   for (const item of (data.items || [])) {
     campaignHealthByCampaignId[item.id] = {
@@ -5774,40 +5857,31 @@ async function renderCampaigns() {
       next_action: null,
     };
   }
-  const deepTarget = campaignDeepLinkTargetFromUrl();
-  let statusFilter = getFilterValue('qCampaigns');
   const productFilter = getFilterValue('qProducts') || 'all';
   const campaignHealthFilter = getFilterValue('qCampaignHealth') || 'all';
   const selectedUserIds = selectedUserFilterSet();
-  if (deepTarget && statusFilter !== 'all') {
-    if (campaignFilterBeforeForceReveal == null) campaignFilterBeforeForceReveal = statusFilter;
-    const filterEl = document.getElementById('qCampaigns');
-    if (filterEl) filterEl.value = 'all';
-    statusFilter = 'all';
-  }
   const items = data.items.filter(c => {
     if (!campaignMatchesUserFilter(c, selectedUserIds)) return false;
-    const statusOk = statusFilter === 'all' || String(c.status || '').toLowerCase() === statusFilter;
-    if (!statusOk) return false;
     const healthOk = campaignHealthFilter === 'all' || String(c.health || c.campaign_health || 'not_started').toLowerCase() === campaignHealthFilter;
     if (!healthOk) return false;
     if (productFilter === 'all') return true;
     return String(c.type || '').toLowerCase() === productFilter;
   });
-  const workspaceEntries = await Promise.all(items.map(async (campaign) => {
-    try {
-      const ws = await api(`/api/campaigns/${encodeURIComponent(campaign.id)}/workspace`);
-      return [campaign.id, ws];
-    } catch (_) {
-      return [campaign.id, null];
-    }
-  }));
-  const workspaceMap = Object.fromEntries(workspaceEntries);
+  const workspaceMap = Object.fromEntries(Array.from(CAMPAIGN_WORKSPACE_CACHE.entries()));
   if (deepTarget) {
     const deepType = String(deepTarget.targetType || '').toLowerCase();
     const deepTargetId = String(deepTarget.targetId || '').trim();
     const deepCampaignId = String(deepTarget.campaignId || (deepType === 'campaign' ? deepTargetId : '')).trim();
     if (deepCampaignId) LIST_EXPANDED_ROW_KEYS.add(rowKeyFor('campaign', deepCampaignId));
+    if (deepCampaignId && !CAMPAIGN_WORKSPACE_CACHE.has(deepCampaignId)) {
+      try {
+        const ws = await apiWithMetrics(`/api/campaigns/${encodeURIComponent(deepCampaignId)}/workspace`);
+        CAMPAIGN_WORKSPACE_CACHE.set(deepCampaignId, ws);
+        workspaceMap[deepCampaignId] = ws;
+      } catch (_) {
+        // Ignore so list still renders.
+      }
+    }
     if (deepType === 'stage' && deepTargetId) {
       LIST_EXPANDED_ROW_KEYS.add(rowKeyFor('stage', deepTargetId));
     }
@@ -5822,7 +5896,10 @@ async function renderCampaigns() {
   const rows = buildCampaignRows(items, workspaceMap);
   LIST_ROWS_CACHE.campaigns = rows;
   renderListModule('campaignsBody', rows);
-  document.getElementById('campaignsCount').textContent = `${items.length} shown / ${data.items.length} total`;
+  const start = currentCampaignsTotal ? (currentCampaignsOffset + 1) : 0;
+  const end = currentCampaignsOffset + items.length;
+  document.getElementById('campaignsCount').textContent = `${start}-${end} shown / ${currentCampaignsTotal} total`;
+  updateCampaignPaginationControls();
 
   const select = document.getElementById('workspaceCampaignSelect');
   if (select) {
@@ -5841,6 +5918,15 @@ async function renderCampaigns() {
     }
   }
   if (deepTarget) requestAnimationFrame(() => revealListTarget(deepTarget));
+  log('Campaigns initial list metrics', {
+    api_calls: apiCalls,
+    campaigns_fetched: data.items.length,
+    campaigns_rendered: items.length,
+    offset: currentCampaignsOffset,
+    limit: CAMPAIGNS_PAGE_SIZE,
+    total: currentCampaignsTotal,
+    render_ms: Math.round((performance.now() - startedAt) * 100) / 100,
+  });
   return data.items;
 }
 
@@ -9501,7 +9587,7 @@ async function renderSystemRisks() {
 }
 
 async function renderHealthWarnings() {
-  const data = await api('/api/campaigns/health?limit=500&offset=0');
+  const data = await api('/api/campaigns/health');
   const warnings = [];
   for (const campaign of (data.items || [])) {
     for (const warning of (campaign.warnings || [])) {
@@ -9604,6 +9690,37 @@ async function refreshAll() {
   await refreshRoleMode();
   await renderScreen();
   requestAnimationFrame(() => applyModuleLayoutRules());
+}
+
+function scheduleCampaignFilterRefresh() {
+  currentCampaignsOffset = 0;
+  if (renderCampaignsDebounceTimer) clearTimeout(renderCampaignsDebounceTimer);
+  renderCampaignsDebounceTimer = setTimeout(() => {
+    refreshAll().catch(err => log('Campaign filter refresh failed', String(err)));
+  }, 180);
+}
+
+function updateCampaignPaginationControls() {
+  const prevBtn = document.getElementById('campaignsPrevBtn');
+  const nextBtn = document.getElementById('campaignsNextBtn');
+  const label = document.getElementById('campaignsPageLabel');
+  const pageNum = Math.floor(currentCampaignsOffset / CAMPAIGNS_PAGE_SIZE) + 1;
+  const maxPage = Math.max(1, Math.ceil((currentCampaignsTotal || 0) / CAMPAIGNS_PAGE_SIZE));
+  if (label) label.textContent = `Page ${pageNum} of ${maxPage}`;
+  if (prevBtn) prevBtn.disabled = currentCampaignsOffset <= 0;
+  if (nextBtn) nextBtn.disabled = (currentCampaignsOffset + CAMPAIGNS_PAGE_SIZE) >= (currentCampaignsTotal || 0);
+}
+
+function goCampaignsPrevPage() {
+  if (currentCampaignsOffset <= 0) return;
+  currentCampaignsOffset = Math.max(0, currentCampaignsOffset - CAMPAIGNS_PAGE_SIZE);
+  refreshAll().catch(err => log('Campaign pagination failed', String(err)));
+}
+
+function goCampaignsNextPage() {
+  if ((currentCampaignsOffset + CAMPAIGNS_PAGE_SIZE) >= (currentCampaignsTotal || 0)) return;
+  currentCampaignsOffset += CAMPAIGNS_PAGE_SIZE;
+  refreshAll().catch(err => log('Campaign pagination failed', String(err)));
 }
 
 async function refreshRoleMode() {

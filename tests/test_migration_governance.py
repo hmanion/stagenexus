@@ -21,7 +21,7 @@ class AlembicDiscoveryTests(unittest.TestCase):
         heads = script_dir.get_heads()
 
         self.assertEqual(len(heads), 1)
-        self.assertEqual(heads[0], "219fcb44bea6")
+        self.assertEqual(heads[0], "7c1a0c8e3a21")
 
 
 class StartupGuardTests(unittest.TestCase):

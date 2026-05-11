@@ -20,6 +20,7 @@ from app.models.domain import (
     User,
 )
 from app.services.calendar_service import build_default_working_calendar
+from app.services.campaign_health_updater import refresh_campaign_health
 from app.services.status_rollup_service import StatusRollupService
 from app.services.timeline_service import TimelineService
 
@@ -59,6 +60,9 @@ class WorkflowEngineService:
         self._activate_successors(step)
         self._refresh_stage_from_steps(step.stage_id)
         StatusRollupService(self.db).reset_parents_after_step_change(step)
+        campaign_id = self._campaign_id_for_step(step)
+        if campaign_id:
+            refresh_campaign_health(self.db, campaign_id)
         return step
 
     def override_step_due(self, step_id: str, current_due_iso: str) -> WorkflowStep:
@@ -78,6 +82,9 @@ class WorkflowEngineService:
 
         self._recalculate_successor_chain(step)
         StatusRollupService(self.db).reset_parents_after_step_change(step)
+        campaign_id = self._campaign_id_for_step(step)
+        if campaign_id:
+            refresh_campaign_health(self.db, campaign_id)
         return step
 
     def manage_step(
@@ -151,6 +158,9 @@ class WorkflowEngineService:
         if not status:
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
 
         normalized = status.strip().lower()
@@ -179,6 +189,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.OFF_TRACK
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
         if normalized in {"not_started", "planned"}:
             step.actual_start = None
@@ -192,6 +205,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.NOT_STARTED
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
         if normalized == "reopen":
             step.actual_done = None
@@ -204,6 +220,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.ON_TRACK
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
         if normalized == "in_progress":
             step.actual_start = step.actual_start or now
@@ -218,6 +237,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.ON_TRACK
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
         if normalized in {"on_hold", "hold"}:
             step.actual_done = None
@@ -229,6 +251,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.AT_RISK
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
         if normalized == "clear_blocker":
             step.waiting_on_type = None
@@ -239,6 +264,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.ON_TRACK if step.actual_start else GlobalHealth.NOT_STARTED
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
 
         blocked_map = {
@@ -263,6 +291,9 @@ class WorkflowEngineService:
             step.normalized_health = GlobalHealth.AT_RISK
             self._refresh_stage_from_steps(step.stage_id)
             StatusRollupService(self.db).reset_parents_after_step_change(step)
+            campaign_id = self._campaign_id_for_step(step)
+            if campaign_id:
+                refresh_campaign_health(self.db, campaign_id)
             return step
 
         raise HTTPException(status_code=400, detail="unsupported status action")
@@ -396,6 +427,16 @@ class WorkflowEngineService:
             )
         )
         return assignment.user_id if assignment else None
+
+    def _campaign_id_for_step(self, step: WorkflowStep) -> str | None:
+        if step.campaign_id:
+            return step.campaign_id
+        if not step.linked_deliverable_id:
+            return None
+        deliverable = self.db.get(Deliverable, step.linked_deliverable_id)
+        if not deliverable:
+            return None
+        return deliverable.campaign_id
 
     def _refresh_stage_from_steps(self, stage_id: str | None) -> None:
         if not stage_id:

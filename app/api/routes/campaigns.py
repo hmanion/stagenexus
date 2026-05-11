@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import json
+import time
 from datetime import date, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.identifiers import resolve_by_identifier as _resolve_by_identifier
@@ -68,6 +70,7 @@ from app.schemas.milestones import (
 )
 from app.services.authz_service import AuthzService
 from app.services.calendar_service import build_default_working_calendar
+from app.services.campaign_health_updater import refresh_campaign_health, refresh_many_campaign_health
 from app.services.campaign_health_service import CampaignHealthService
 from app.services.deliverable_derivation_service import DeliverableDerivationService
 from app.services.deliverable_workflow_service import DeliverableWorkflowService
@@ -463,328 +466,215 @@ def list_campaigns(
     actor_user_id: str | None = None,
     db: Session = Depends(get_db),
 ):
+    started_at = time.perf_counter()
+    query_count = 0
+    fetched_parent_records = 0
+    fetched_child_records = 0
     actor = None
     full_visibility = True
     if actor_user_id:
         actor = AuthzService(db).actor(actor_user_id)
         full_visibility = _actor_has_full_scope_campaign_visibility(actor)
 
-    campaigns = db.scalars(select(Campaign).order_by(Campaign.created_at.desc())).all()
-    deals_by_id = {d.id: d for d in db.scalars(select(Deal)).all()}
-    assignments = db.scalars(select(CampaignAssignment)).all()
-    campaign_ids = [c.id for c in campaigns]
-    deliverables_by_campaign: dict[str, list[Deliverable]] = {}
-    workflow_steps_by_campaign: dict[str, list[WorkflowStep]] = {}
-    step_efforts_by_step_id: dict[str, list[WorkflowStepEffort]] = {}
-    if campaign_ids:
-        deliverable_rows = db.scalars(select(Deliverable).where(Deliverable.campaign_id.in_(campaign_ids))).all()
-        for d in deliverable_rows:
-            deliverables_by_campaign.setdefault(d.campaign_id, []).append(d)
-        workflow_rows = db.scalars(select(WorkflowStep).where(WorkflowStep.campaign_id.in_(campaign_ids))).all()
-        for s in workflow_rows:
-            workflow_steps_by_campaign.setdefault(s.campaign_id, []).append(s)
-        step_ids = [s.id for s in workflow_rows]
-        if step_ids:
-            effort_rows = db.scalars(select(WorkflowStepEffort).where(WorkflowStepEffort.workflow_step_id.in_(step_ids))).all()
-            for e in effort_rows:
-                step_efforts_by_step_id.setdefault(e.workflow_step_id, []).append(e)
-    owners_by_campaign: dict[str, set[str]] = {}
-    assignment_rows_by_campaign: dict[str, list[CampaignAssignment]] = {}
-    for a in assignments:
-        owners_by_campaign.setdefault(a.campaign_id, set()).add(a.user_id)
-        assignment_rows_by_campaign.setdefault(a.campaign_id, []).append(a)
+    base = select(Campaign)
+    if status:
+        base = base.where(Campaign.status == status.strip().lower())
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        base = base.where(
+            or_(
+                func.lower(Campaign.display_id).like(needle),
+                func.lower(Campaign.title).like(needle),
+                func.lower(Campaign.tier).like(needle),
+                func.lower(Campaign.status).like(needle),
+            )
+        )
+    if owner:
+        base = base.where(
+            Campaign.id.in_(
+                select(CampaignAssignment.campaign_id).where(CampaignAssignment.user_id == owner)
+            )
+        )
+    if actor and not full_visibility:
+        if actor.seniority == SeniorityLevel.MANAGER:
+            base = base.where(
+                Campaign.id.in_(
+                    select(CampaignAssignment.campaign_id)
+                    .join(User, User.id == CampaignAssignment.user_id)
+                    .where(User.primary_team == actor.primary_team)
+                )
+            )
+        else:
+            base = base.where(
+                Campaign.id.in_(
+                    select(CampaignAssignment.campaign_id).where(CampaignAssignment.user_id == actor.user_id)
+                )
+            )
 
+    total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    query_count += 1
+    campaigns = db.scalars(base.order_by(Campaign.created_at.desc()).offset(offset).limit(limit)).all()
+    query_count += 1
+    fetched_parent_records = len(campaigns)
+    campaign_ids = [c.id for c in campaigns]
+    if not campaigns:
+        payload = {"items": [], "total": total, "limit": limit, "offset": offset}
+        logger.info(
+            "campaign_list_metrics duration_ms=%s sql_queries=%s parent_rows=%s child_rows=%s payload_bytes=%s offset=%s limit=%s",
+            round((time.perf_counter() - started_at) * 1000, 2),
+            query_count,
+            fetched_parent_records,
+            fetched_child_records,
+            len(json.dumps(payload, default=str)),
+            offset,
+            limit,
+        )
+        return payload
+
+    deals_by_id = {
+        d.id: d
+        for d in db.scalars(select(Deal).where(Deal.id.in_([c.deal_id for c in campaigns]))).all()
+    }
+    query_count += 1
+    fetched_child_records += len(deals_by_id)
+
+    assignment_rows = db.scalars(
+        select(CampaignAssignment).where(CampaignAssignment.campaign_id.in_(campaign_ids))
+    ).all()
+    query_count += 1
+    fetched_child_records += len(assignment_rows)
+    assignments_by_campaign: dict[str, list[CampaignAssignment]] = {}
+    owner_ids_by_campaign: dict[str, set[str]] = {}
+    for row in assignment_rows:
+        assignments_by_campaign.setdefault(row.campaign_id, []).append(row)
+        owner_ids_by_campaign.setdefault(row.campaign_id, set()).add(row.user_id)
+
+    user_ids = sorted({row.user_id for row in assignment_rows if row.user_id})
+    users_by_id = {
+        u.id: u
+        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()
+    } if user_ids else {}
+    if user_ids:
+        query_count += 1
+        fetched_child_records += len(users_by_id)
+
+    milestone_rows = db.scalars(select(Milestone).where(Milestone.campaign_id.in_(campaign_ids))).all()
+    query_count += 1
+    fetched_child_records += len(milestone_rows)
     milestones_by_campaign: dict[str, list[Milestone]] = {}
-    if campaign_ids:
-        milestone_rows = db.scalars(select(Milestone).where(Milestone.campaign_id.in_(campaign_ids))).all()
-        for m in milestone_rows:
-            milestones_by_campaign.setdefault(m.campaign_id, []).append(m)
+    for row in milestone_rows:
+        milestones_by_campaign.setdefault(row.campaign_id, []).append(row)
     timeframe_by_campaign = {
-        cid: _campaign_timeframe_from_milestones(rows)
-        for cid, rows in milestones_by_campaign.items()
+        campaign_id: _campaign_timeframe_from_milestones(rows)
+        for campaign_id, rows in milestones_by_campaign.items()
     }
 
-    user_ids = sorted(
-        {
-            a.user_id
-            for a in assignments
-            if a.user_id
-        }
-        .union(
-            {
-                s.next_owner_user_id
-                for rows in workflow_steps_by_campaign.values()
-                for s in rows
-                if s.next_owner_user_id
-            }
-        )
-        .union(
-            {
-                e.assigned_user_id
-                for rows in step_efforts_by_step_id.values()
-                for e in rows
-                if e.assigned_user_id
-            }
-        )
-        .union(
-            {
-                d.owner_user_id
-                for rows in deliverables_by_campaign.values()
-                for d in rows
-                if d.owner_user_id
-            }
-        )
-    )
-    users_by_id = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
+    deliverable_counts = db.execute(
+        select(Deliverable.campaign_id, Deliverable.status, func.count())
+        .where(Deliverable.campaign_id.in_(campaign_ids))
+        .group_by(Deliverable.campaign_id, Deliverable.status)
+    ).all()
+    query_count += 1
+    fetched_child_records += len(deliverable_counts)
+    work_counts = db.execute(
+        select(WorkflowStep.campaign_id, WorkflowStep.normalized_status, func.count())
+        .where(WorkflowStep.campaign_id.in_(campaign_ids))
+        .group_by(WorkflowStep.campaign_id, WorkflowStep.normalized_status)
+    ).all()
+    query_count += 1
+    fetched_child_records += len(work_counts)
 
-    assignment_user_ids_by_campaign: dict[str, set[str]] = {}
-    for campaign_id, rows in assignment_rows_by_campaign.items():
-        assignment_user_ids_by_campaign[campaign_id] = {r.user_id for r in rows if r.user_id}
-    deliverable_owner_ids_by_campaign: dict[str, set[str]] = {}
-    for campaign_id, rows in deliverables_by_campaign.items():
-        deliverable_owner_ids_by_campaign[campaign_id] = {d.owner_user_id for d in rows if d.owner_user_id}
-    step_owner_ids_by_campaign: dict[str, set[str]] = {}
-    for campaign_id, rows in workflow_steps_by_campaign.items():
-        step_owner_ids_by_campaign[campaign_id] = {s.next_owner_user_id for s in rows if s.next_owner_user_id}
+    d_summary_by_campaign: dict[str, dict[str, int]] = {}
+    for campaign_id, d_status, count in deliverable_counts:
+        summary = d_summary_by_campaign.setdefault(campaign_id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0})
+        summary["total"] += int(count or 0)
+        normalized = _normalize_deliverable_status(d_status)
+        if normalized == GlobalStatus.NOT_STARTED:
+            summary["not_started"] += int(count or 0)
+        elif normalized in {
+            GlobalStatus.IN_PROGRESS,
+            GlobalStatus.ON_HOLD,
+            GlobalStatus.BLOCKED_CLIENT,
+            GlobalStatus.BLOCKED_INTERNAL,
+            GlobalStatus.BLOCKED_DEPENDENCY,
+        }:
+            summary["in_progress"] += int(count or 0)
+        elif normalized == GlobalStatus.DONE:
+            summary["done"] += int(count or 0)
 
-    def _campaign_visible_for_actor(campaign: Campaign) -> bool:
-        if full_visibility or not actor:
-            return True
-        campaign_user_ids = (
-            assignment_user_ids_by_campaign.get(campaign.id, set())
-            .union(deliverable_owner_ids_by_campaign.get(campaign.id, set()))
-            .union(step_owner_ids_by_campaign.get(campaign.id, set()))
-        )
-        if actor.seniority == SeniorityLevel.MANAGER:
-            return any(
-                (uid in users_by_id) and (users_by_id[uid].primary_team == actor.primary_team)
-                for uid in campaign_user_ids
-            )
-        return actor.user_id in campaign_user_ids
+    w_summary_by_campaign: dict[str, dict[str, int]] = {}
+    for campaign_id, w_status, count in work_counts:
+        summary = w_summary_by_campaign.setdefault(campaign_id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0})
+        summary["total"] += int(count or 0)
+        raw = str(w_status.value if hasattr(w_status, "value") else w_status or "").lower()
+        if raw == "not_started":
+            summary["not_started"] += int(count or 0)
+        elif raw in {"in_progress", "on_hold", "blocked_client", "blocked_internal", "blocked_dependency"}:
+            summary["in_progress"] += int(count or 0)
+        elif raw == "done":
+            summary["done"] += int(count or 0)
 
-    timeline_health = TimelineHealthService(db)
-    health_by_campaign: dict[str, dict] = {}
-    derived_stage_by_campaign: dict[str, str] = {}
-    for c in campaigns:
-        c_deliverables = deliverables_by_campaign.get(c.id, [])
-        c_steps = workflow_steps_by_campaign.get(c.id, [])
-        c_assignments = assignment_rows_by_campaign.get(c.id, [])
-        eval_result, derived_stage = timeline_health.evaluate_campaign(
-            campaign=c,
-            deliverables=c_deliverables,
-            steps=c_steps,
-            efforts_by_step_id=step_efforts_by_step_id,
-            assignments=c_assignments,
-        )
-        health_by_campaign[c.id] = {
-            "overall_status": eval_result.health,
-            "health_reason": eval_result.health_reason,
-            "buffer_working_days_remaining": eval_result.buffer_working_days_remaining,
-            "is_not_due": eval_result.is_not_due,
-        }
-        derived_stage_by_campaign[c.id] = derived_stage
-
-    all_items = [
+    items = []
+    for campaign in campaigns:
+        assignments = sorted(assignments_by_campaign.get(campaign.id, []), key=lambda row: row.role_name.value)
+        timeframe = timeframe_by_campaign.get(campaign.id) or (None, None)
+        health_value = str(campaign.health.value if hasattr(campaign.health, "value") else campaign.health or "not_started")
+        items.append(
             {
-                "id": c.display_id,
-                "campaign_internal_id": c.id,
-                "type": c.campaign_type.value,
-                "tier": c.tier,
-                "title": c.title,
-                "scope_id": deals_by_id.get(c.deal_id).display_id if deals_by_id.get(c.deal_id) else None,
-                "status": _normalize_campaign_status(c.status).value,
-                "status_source": str(c.status_source.value if hasattr(c.status_source, "value") else c.status_source or "derived"),
-                "status_overridden_by_user_id": c.status_overridden_by_user_id,
-                "is_demand_sprint": c.is_demand_sprint,
-                "demand_sprint_number": c.demand_sprint_number,
-                "demand_track": c.demand_track,
-                "sprint_label": (f"S{c.demand_sprint_number}" if c.is_demand_sprint and c.demand_sprint_number else None),
-                "template_version_id": c.template_version_id,
-                "owner_user_ids": sorted(list(owners_by_campaign.get(c.id, set()))),
+                "id": campaign.display_id,
+                "type": campaign.campaign_type.value,
+                "tier": campaign.tier,
+                "title": campaign.title,
+                "scope_id": deals_by_id.get(campaign.deal_id).display_id if deals_by_id.get(campaign.deal_id) else None,
+                "status": _normalize_campaign_status(campaign.status).value,
+                "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source or "derived"),
+                "status_overridden_by_user_id": campaign.status_overridden_by_user_id,
+                "is_demand_sprint": campaign.is_demand_sprint,
+                "demand_sprint_number": campaign.demand_sprint_number,
+                "demand_track": campaign.demand_track,
+                "sprint_label": (f"S{campaign.demand_sprint_number}" if campaign.is_demand_sprint and campaign.demand_sprint_number else None),
+                "template_version_id": campaign.template_version_id,
+                "owner_user_ids": sorted(list(owner_ids_by_campaign.get(campaign.id, set()))),
                 "module_type": "campaign",
-                "health": str((health_by_campaign.get(c.id) or {}).get("overall_status") or "not_started"),
-                "health_reason": (health_by_campaign.get(c.id) or {}).get("health_reason"),
-                "buffer_working_days_remaining": (health_by_campaign.get(c.id) or {}).get("buffer_working_days_remaining"),
-                "is_not_due": bool((health_by_campaign.get(c.id) or {}).get("is_not_due")),
-                "timeframe_start": (c.planned_start_date.isoformat() if c.planned_start_date else (timeframe_by_campaign.get(c.id) or (None, None))[0]),
-                "timeframe_due": (c.planned_end_date.isoformat() if c.planned_end_date else (timeframe_by_campaign.get(c.id) or (None, None))[1]),
-                "derived_stage": derived_stage_by_campaign.get(c.id, "not_started"),
+                "health": health_value,
+                "campaign_health": health_value,
+                "health_reason": campaign.health_reason,
+                "health_updated_at": campaign.health_updated_at.isoformat() if campaign.health_updated_at else None,
+                "timeframe_start": campaign.planned_start_date.isoformat() if campaign.planned_start_date else timeframe[0],
+                "timeframe_due": campaign.planned_end_date.isoformat() if campaign.planned_end_date else timeframe[1],
                 "assigned_users": [
                     {
-                        "user_id": a.user_id,
-                        "name": users_by_id.get(a.user_id).full_name if users_by_id.get(a.user_id) else None,
-                        "initials": _initials_for_user_id(a.user_id, users_by_id),
-                        "role": a.role_name.value,
+                        "user_id": row.user_id,
+                        "name": users_by_id.get(row.user_id).full_name if users_by_id.get(row.user_id) else None,
+                        "initials": _initials_for_user_id(row.user_id, users_by_id),
+                        "role": row.role_name.value,
                     }
-                    for a in sorted(assignment_rows_by_campaign.get(c.id, []), key=lambda x: x.role_name.value)
+                    for row in assignments
                 ],
                 "assigned_user_initials": [
-                    _initials_for_user_id(a.user_id, users_by_id)
-                    for a in sorted(assignment_rows_by_campaign.get(c.id, []), key=lambda x: x.role_name.value)
-                    if a.user_id
+                    _initials_for_user_id(row.user_id, users_by_id)
+                    for row in assignments
+                    if row.user_id
                 ],
-                "campaign_name": c.title,
-                "campaign_status": _normalize_campaign_status(c.status).value,
-                "campaign_health": str((health_by_campaign.get(c.id) or {}).get("overall_status") or "not_started"),
-                "deliverables_summary": {
-                    "total": len(deliverables_by_campaign.get(c.id, [])),
-                    "not_started": len(
-                        [
-                            d
-                            for d in deliverables_by_campaign.get(c.id, [])
-                            if _normalize_deliverable_status(d.status) == GlobalStatus.NOT_STARTED
-                        ]
-                    ),
-                    "in_progress": len(
-                        [
-                            d
-                            for d in deliverables_by_campaign.get(c.id, [])
-                            if _normalize_deliverable_status(d.status) in {
-                                GlobalStatus.IN_PROGRESS,
-                                GlobalStatus.ON_HOLD,
-                                GlobalStatus.BLOCKED_CLIENT,
-                                GlobalStatus.BLOCKED_INTERNAL,
-                                GlobalStatus.BLOCKED_DEPENDENCY,
-                            }
-                        ]
-                    ),
-                    "done": len(
-                        [
-                            d
-                            for d in deliverables_by_campaign.get(c.id, [])
-                            if _normalize_deliverable_status(d.status) == GlobalStatus.DONE
-                        ]
-                    ),
-                },
-                "deliverables": [
-                    {
-                        "id": d.display_id,
-                        "title": d.title,
-                        "status": _normalize_deliverable_status(d.status).value,
-                        "delivery_status": d.status.value,
-                        "derived_status": _derived_deliverable_status(db, d),
-                        "health": timeline_health.evaluate_deliverable(
-                            deliverable=d,
-                            campaign=c,
-                            steps=[s for s in workflow_steps_by_campaign.get(c.id, []) if _step_linked_deliverable(s) == d.id],
-                            efforts_by_step_id=step_efforts_by_step_id,
-                        ).health,
-                        "current_due": d.current_due.isoformat() if d.current_due else None,
-                        "current_start": d.current_start.isoformat() if d.current_start else None,
-                        "stage": _deliverable_stage_from_record(d).value,
-                        "owner_user_id": d.owner_user_id,
-                        "owner_initials": _initials_for_user_id(d.owner_user_id, users_by_id),
-                        "campaign_name": c.title,
-                    }
-                    for d in sorted(
-                        deliverables_by_campaign.get(c.id, []),
-                        key=lambda x: (x.current_due or date.max, x.created_at),
-                    )
-                ],
-                "work_summary": {
-                    "total": len(workflow_steps_by_campaign.get(c.id, [])),
-                    "not_started": len(
-                        [
-                            s
-                            for s in workflow_steps_by_campaign.get(c.id, [])
-                            if _normalize_step_status(s) == GlobalStatus.NOT_STARTED
-                        ]
-                    ),
-                    "in_progress": len(
-                        [
-                            s
-                            for s in workflow_steps_by_campaign.get(c.id, [])
-                            if _normalize_step_status(s)
-                            in {
-                                GlobalStatus.IN_PROGRESS,
-                                GlobalStatus.ON_HOLD,
-                                GlobalStatus.BLOCKED_CLIENT,
-                                GlobalStatus.BLOCKED_INTERNAL,
-                                GlobalStatus.BLOCKED_DEPENDENCY,
-                            }
-                        ]
-                    ),
-                    "done": len(
-                        [
-                            s
-                            for s in workflow_steps_by_campaign.get(c.id, [])
-                            if _normalize_step_status(s) == GlobalStatus.DONE
-                        ]
-                    ),
-                },
-                "work_steps": [
-                    {
-                        "id": s.display_id,
-                        "name": s.name,
-                        "module_type": "step",
-                        "stage": (
-                            (
-                                str(s.stage_name).strip().lower()
-                                if s.stage_name and str(s.stage_name).strip().lower() in {"planning", "production", "promotion", "reporting"}
-                                else (
-                                    _deliverable_stage_from_record(
-                                        next(
-                                            (d for d in deliverables_by_campaign.get(c.id, []) if d.id == _step_linked_deliverable(s)),
-                                            None,
-                                        )
-                                    ).value
-                                    if _step_linked_deliverable(s)
-                                    and next(
-                                        (d for d in deliverables_by_campaign.get(c.id, []) if d.id == _step_linked_deliverable(s)),
-                                        None,
-                                    )
-                                    else (
-                                        "planning" if s.campaign_id and not _step_linked_deliverable(s) else "production"
-                                    )
-                                )
-                            )
-                        ),
-                        "status": _normalize_step_status(s).value,
-                        "health": timeline_health.evaluate_step(s, campaign=c).health,
-                        "current_start": s.current_start.isoformat() if s.current_start else None,
-                        "current_due": s.current_due.isoformat() if s.current_due else None,
-                        "earliest_start_date": s.earliest_start_date.isoformat() if s.earliest_start_date else None,
-                        "planned_work_date": s.planned_work_date.isoformat() if s.planned_work_date else None,
-                        "completion_date": s.actual_done.isoformat() if s.actual_done else None,
-                        "next_owner_user_id": s.next_owner_user_id,
-                        "owner_initials": _initials_for_user_id(s.next_owner_user_id, users_by_id),
-                        "participant_initials": _participant_initials_for_step(s, step_efforts_by_step_id, users_by_id),
-                        "deliverable_title": next(
-                            (d.title for d in deliverables_by_campaign.get(c.id, []) if d.id == _step_linked_deliverable(s)),
-                            None,
-                        ),
-                    }
-                    for s in sorted(
-                        workflow_steps_by_campaign.get(c.id, []),
-                        key=lambda x: (x.current_due or date.max, x.created_at),
-                    )
-                ],
-                "created_at": c.created_at.isoformat(),
+                "campaign_name": campaign.title,
+                "campaign_status": _normalize_campaign_status(campaign.status).value,
+                "deliverables_summary": d_summary_by_campaign.get(campaign.id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0}),
+                "work_summary": w_summary_by_campaign.get(campaign.id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0}),
+                "created_at": campaign.created_at.isoformat(),
             }
-        for c in campaigns
-        if _campaign_visible_for_actor(c)
-    ]
-    if status:
-        needle_status = status.strip().lower()
-        all_items = [
-            i
-            for i in all_items
-            if i["status"] == needle_status or str(i.get("delivery_status", "")).lower() == needle_status
-        ]
-    if owner:
-        all_items = [i for i in all_items if owner in i["owner_user_ids"]]
-    if q:
-        needle = q.strip().lower()
-        all_items = [
-            i
-            for i in all_items
-            if needle in " ".join([i["id"], i["title"], i["type"], i["tier"], i["status"]]).lower()
-        ]
-    total = len(all_items)
-    items = all_items[offset : offset + limit]
-    for i in items:
-        i.pop("campaign_internal_id", None)
-    return {"items": items, "total": total, "limit": limit, "offset": offset}
+        )
+    payload = {"items": items, "total": total, "limit": limit, "offset": offset}
+    logger.info(
+        "campaign_list_metrics duration_ms=%s sql_queries=%s parent_rows=%s child_rows=%s payload_bytes=%s offset=%s limit=%s",
+        round((time.perf_counter() - started_at) * 1000, 2),
+        query_count,
+        fetched_parent_records,
+        fetched_child_records,
+        len(json.dumps(payload, default=str)),
+        offset,
+        limit,
+    )
+    return payload
 
 
 @router.patch("/campaigns/{campaign_id}/assignments")
@@ -1073,6 +963,7 @@ def bulk_update_campaign_descendant_status(campaign_id: str, payload: CampaignDe
             status=status,
         )
     StatusRollupService(db).reset_campaign_to_derived(campaign)
+    refresh_campaign_health(db, campaign.id)
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
@@ -1165,6 +1056,7 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
             },
         )
     )
+    refresh_campaign_health(db, campaign.id)
     db.commit()
     return {
         "campaign_id": campaign.display_id,
@@ -1828,6 +1720,8 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
         comment=payload.comment,
     )
     DeliverableDerivationService(db).recompute_operational_stage_status(updated)
+    if campaign.id:
+        refresh_campaign_health(db, campaign.id)
     db.commit()
     health_payload = _evaluate_deliverable_health(db, updated)
     return {
@@ -1860,6 +1754,7 @@ def delete_deliverable(deliverable_id: str, actor_user_id: str, db: Session = De
     ):
         raise HTTPException(status_code=403, detail="not permitted to delete deliverable")
 
+    campaign_id = deliverable.campaign_id
     deleted = _delete_deliverable_graph(db, deliverable.id)
     db.add(
         ActivityLog(
@@ -1871,6 +1766,8 @@ def delete_deliverable(deliverable_id: str, actor_user_id: str, db: Session = De
             meta_json={"deliverable_id": deliverable.display_id, "deleted_counts": deleted},
         )
     )
+    if campaign_id:
+        refresh_campaign_health(db, campaign_id)
     db.commit()
     return {"deleted": True, "deliverable_id": deliverable.display_id, "counts": deleted}
 
@@ -1917,6 +1814,8 @@ def override_deliverable_due(deliverable_id: str, payload: DeliverableDueUpdateI
             },
         )
     )
+    if deliverable.campaign_id:
+        refresh_campaign_health(db, deliverable.campaign_id)
     db.commit()
     return {
         "id": deliverable.display_id,
@@ -1983,6 +1882,8 @@ def update_deliverable_dates(deliverable_id: str, payload: DeliverableDatesUpdat
             },
         )
     )
+    if deliverable.campaign_id:
+        refresh_campaign_health(db, deliverable.campaign_id)
     db.commit()
     return {
         "id": deliverable.display_id,
@@ -2032,6 +1933,8 @@ def update_deliverable_stage(deliverable_id: str, payload: DeliverableStageUpdat
             },
         )
     )
+    if deliverable.campaign_id:
+        refresh_campaign_health(db, deliverable.campaign_id)
     db.commit()
     return {
         "id": deliverable.display_id,
@@ -2450,6 +2353,8 @@ def update_milestone(milestone_id: str, payload: MilestoneUpdateIn, db: Session 
         if campaign and campaign.planned_start_date:
             milestone.offset_days_from_campaign_start = (due - campaign.planned_start_date).days
     MilestoneService(db).refresh_sla(milestone)
+    if milestone.campaign_id:
+        refresh_campaign_health(db, milestone.campaign_id)
     db.commit()
     return {
         "id": milestone.display_id,
@@ -2479,6 +2384,8 @@ def update_milestone_completion(milestone_id: str, payload: MilestoneCompletionU
         raise HTTPException(status_code=403, detail="insufficient permissions to complete milestone")
     completion = date.fromisoformat(payload.completion_date_iso) if payload.completion_date_iso else None
     MilestoneService(db).set_completion_date(milestone, completion)
+    if milestone.campaign_id:
+        refresh_campaign_health(db, milestone.campaign_id)
     db.commit()
     return {
         "id": milestone.display_id,
@@ -2507,6 +2414,8 @@ def override_milestone_sla(milestone_id: str, payload: MilestoneSlaOverrideIn, d
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="invalid sla_health") from exc
         service.override_sla_health(milestone, actor_user_id=effective_actor_user_id, sla_health=target)
+    if milestone.campaign_id:
+        refresh_campaign_health(db, milestone.campaign_id)
     db.commit()
     return {
         "id": milestone.display_id,

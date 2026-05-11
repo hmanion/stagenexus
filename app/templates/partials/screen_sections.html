@@ -5,7 +5,7 @@
       </div>
       <div class='toolbar'>
         <label class='sub' for='qCampaigns'>Campaigns</label>
-        <select id='qCampaigns' aria-label='Filter campaigns' onchange='refreshAll()'>
+        <select id='qCampaigns' aria-label='Filter campaigns' onchange='scheduleCampaignFilterRefresh()'>
           <option value='all'>All campaigns</option>
           <option value='not_started'>Not started</option>
           <option value='in_progress'>In Progress</option>
@@ -17,7 +17,7 @@
           <option value='cancelled'>Cancelled</option>
         </select>
         <label class='sub' for='qProducts'>Products</label>
-        <select id='qProducts' aria-label='Filter products' onchange='refreshAll()'>
+        <select id='qProducts' aria-label='Filter products' onchange='scheduleCampaignFilterRefresh()'>
           <option value='all'>All products</option>
           <option value='demand'>Demand</option>
           <option value='amplify'>Amplify</option>
@@ -25,7 +25,7 @@
           <option value='display_only'>Display</option>
         </select>
         <label class='sub' for='qScopeHealth'>Scope health</label>
-        <select id='qScopeHealth' aria-label='Filter scope health' onchange='refreshAll()'>
+        <select id='qScopeHealth' aria-label='Filter scope health' onchange='scheduleCampaignFilterRefresh()'>
           <option value='all'>All scope health</option>
           <option value='on_track'>On Track</option>
           <option value='at_risk'>At Risk</option>
@@ -33,7 +33,7 @@
           <option value='not_started'>Not due</option>
         </select>
         <label class='sub' for='qCampaignHealth'>Campaign health</label>
-        <select id='qCampaignHealth' aria-label='Filter campaign health' onchange='refreshAll()'>
+        <select id='qCampaignHealth' aria-label='Filter campaign health' onchange='scheduleCampaignFilterRefresh()'>
           <option value='all'>All campaign health</option>
           <option value='on_track'>On Track</option>
           <option value='at_risk'>At Risk</option>
@@ -45,9 +45,9 @@
           <button id='qUsersButton' type='button' class='ghost' aria-haspopup='true' aria-expanded='false' onclick='toggleUsersDropdown(event)'>All users</button>
           <div id='qUsersMenu' class='multi-filter-menu hidden' role='menu' aria-label='Filter by users'></div>
         </div>
-        <select id='qUsers' aria-label='Filter by users' multiple class='hidden' onchange='refreshAll()'></select>
+        <select id='qUsers' aria-label='Filter by users' multiple class='hidden' onchange='scheduleCampaignFilterRefresh()'></select>
         <label class='sub' for='qUsersLogic'>Users logic</label>
-        <select id='qUsersLogic' aria-label='User filter logic' onchange='refreshAll()'>
+        <select id='qUsersLogic' aria-label='User filter logic' onchange='scheduleCampaignFilterRefresh()'>
           <option value='or'>OR</option>
           <option value='and'>AND</option>
         </select>
@@ -187,7 +187,12 @@
     <section class='card' id='sectionCampaigns'>
       <div class='section-head'>
         <h3>Campaigns</h3>
-        <span id='campaignsCount' class='muted'></span>
+        <div style='display:flex; gap:8px; align-items:center;'>
+          <span id='campaignsPageLabel' class='muted'>Page 1 of 1</span>
+          <button id='campaignsPrevBtn' type='button' class='ghost' onclick='goCampaignsPrevPage()'>Prev</button>
+          <button id='campaignsNextBtn' type='button' class='ghost' onclick='goCampaignsNextPage()'>Next</button>
+          <span id='campaignsCount' class='muted'></span>
+        </div>
       </div>
       <div id='campaignsBody' class='queue-list'></div>
     </section>

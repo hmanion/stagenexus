@@ -28,6 +28,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
             ("status_source", "VARCHAR(16) NOT NULL DEFAULT 'derived'"),
             ("status_overridden_by_user_id", "VARCHAR(36)"),
             ("status_overridden_at", "DATETIME"),
+            ("health", "VARCHAR(24) NOT NULL DEFAULT 'not_started'"),
+            ("health_reason", "VARCHAR(128)"),
+            ("health_updated_at", "DATETIME"),
         ],
         "deliverables": [
             ("campaign_id", "VARCHAR(36)"),
@@ -1199,6 +1202,10 @@ def _ensure_new_indexes(conn) -> None:
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_milestones_stage_id ON milestones(stage_id)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_milestones_due_date ON milestones(due_date)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_deliverables_campaign_type_seq ON deliverables(campaign_id, deliverable_type, sequence_number)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_created_at ON campaigns(created_at)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_status_created_at ON campaigns(status, created_at)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaigns_deal_id ON campaigns(deal_id)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_campaign_assignments_campaign_id ON campaign_assignments(campaign_id)"))
 
 
 def assert_runtime_integrity(engine: Engine) -> None:
