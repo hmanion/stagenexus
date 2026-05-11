@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +15,7 @@ from app.models.domain import (
     UserRoleAssignment,
 )
 from app.services.id_service import PublicIdService
+from app.seeds.reference_data import resolve_stage_steps_rows_for_bootstrap
 from app.workflows.default_templates import DEFAULT_TEMPLATES
 
 
@@ -55,17 +58,29 @@ def seed_bootstrap(db: Session) -> None:
         ):
             db.add(UserRoleAssignment(user_id=user.id, role_id=role.id))
 
+    stage_steps_rows = resolve_stage_steps_rows_for_bootstrap(db)
     for template_name, payload in DEFAULT_TEMPLATES.items():
-        exists = db.scalar(select(TemplateVersion).where(TemplateVersion.name == template_name, TemplateVersion.version == payload["version"]))
-        if not exists:
+        workflow_payload = deepcopy(payload)
+        workflow_payload["csv_stage_steps"] = stage_steps_rows
+
+        existing = db.scalar(
+            select(TemplateVersion).where(
+                TemplateVersion.name == template_name,
+                TemplateVersion.version == payload["version"],
+            )
+        )
+        if not existing:
             db.add(
                 TemplateVersion(
                     display_id=public_ids.next_id(TemplateVersion, "TPL"),
                     name=template_name,
                     version=payload["version"],
-                    workflow_json=payload,
+                    workflow_json=workflow_payload,
                     is_active=True,
                 )
             )
+            continue
+        if existing.workflow_json != workflow_payload:
+            existing.workflow_json = workflow_payload
 
     db.commit()

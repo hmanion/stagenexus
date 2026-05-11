@@ -1,0 +1,4 @@
+Step,Stage,Type,How many?,Dependent on?,Notes,CC Hours,CM Hours,AM Hours,DN hours,MM Hours,Demand Create,Demand Reach,Demand Capture,Response,Amplify,Display
+Schedule kick-off,Planning,Task,Per campaign,,Seeded default stage step,0,1.5,0,0,0,all,all,all,all,all,all
+Run kick-off,Planning,Call,Per campaign,Schedule kick-off,Seeded default stage step,0,1.0,0,0,0,all,all,all,all,all,all
+Draft article,Production,Task,Per piece of content,Run kick-off,Seeded default stage step,4.0,0,0,0,0,all,all,silver,all,all,all

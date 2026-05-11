@@ -13,6 +13,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -388,6 +389,11 @@ class ProductModule(Base, TimestampMixin):
     module_name: Mapped[str] = mapped_column(String(32), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    __table_args__ = (
+        Index("ix_product_modules_campaign_id", "campaign_id"),
+        Index("ix_product_modules_sprint_id", "sprint_id"),
+    )
+
 
 class Deliverable(Base, TimestampMixin):
     __tablename__ = "deliverables"
@@ -430,6 +436,12 @@ class Deliverable(Base, TimestampMixin):
     internal_review_rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     client_review_rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     amend_rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    __table_args__ = (
+        Index("ix_deliverables_campaign_id", "campaign_id"),
+        Index("ix_deliverables_sprint_id", "sprint_id"),
+        Index("ix_deliverables_campaign_type_seq", "campaign_id", "deliverable_type", "sequence_number"),
+    )
 
 
 class WorkflowStep(Base, TimestampMixin):
@@ -488,6 +500,14 @@ class WorkflowStep(Base, TimestampMixin):
             "(stage_id IS NOT NULL)",
             name="ck_workflow_step_single_parent",
         ),
+        Index("ix_workflow_steps_deliverable_id", "deliverable_id"),
+        Index("ix_workflow_steps_linked_deliverable_id", "linked_deliverable_id"),
+        Index("ix_workflow_steps_stage_id", "stage_id"),
+        Index("ix_workflow_steps_campaign_id", "campaign_id"),
+        Index("ix_workflow_steps_sprint_id", "sprint_id"),
+        Index("ix_workflow_steps_next_owner_user_id", "next_owner_user_id"),
+        Index("ix_workflow_steps_planned_work_date", "planned_work_date"),
+        Index("ix_workflow_steps_earliest_start_date", "earliest_start_date"),
     )
 
 
@@ -523,6 +543,7 @@ class Stage(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("campaign_id", "name", name="uq_stage_campaign_name"),
+        Index("ix_stages_campaign_id", "campaign_id"),
     )
 
 
@@ -552,6 +573,8 @@ class WorkflowStepEffort(Base, TimestampMixin):
 
     __table_args__ = (
         UniqueConstraint("workflow_step_id", "role_name", name="uq_workflow_step_effort_role"),
+        Index("ix_workflow_step_efforts_step", "workflow_step_id"),
+        Index("ix_workflow_step_efforts_user", "assigned_user_id"),
     )
 
 
@@ -588,6 +611,11 @@ class ReviewWindow(Base, TimestampMixin):
     round_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
 
+    __table_args__ = (
+        Index("ix_review_windows_deliverable", "deliverable_id"),
+        Index("ix_review_windows_status_due", "status", "window_due"),
+    )
+
 
 class ReviewRoundEvent(Base, TimestampMixin):
     __tablename__ = "review_round_events"
@@ -604,6 +632,8 @@ class ReviewRoundEvent(Base, TimestampMixin):
     actor_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     note: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(16), default="auto", nullable=False)
+
+    __table_args__ = (Index("ix_review_round_events_deliverable", "deliverable_id"),)
 
 
 class Milestone(Base, TimestampMixin):
@@ -631,6 +661,13 @@ class Milestone(Base, TimestampMixin):
     baseline_date: Mapped[date | None] = mapped_column(Date)
     current_target_date: Mapped[date | None] = mapped_column(Date)
     achieved_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("ix_milestones_campaign_id", "campaign_id"),
+        Index("ix_milestones_sprint_id", "sprint_id"),
+        Index("ix_milestones_stage_id", "stage_id"),
+        Index("ix_milestones_due_date", "due_date"),
+    )
 
 
 class SystemRisk(Base, TimestampMixin):

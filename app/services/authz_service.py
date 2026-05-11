@@ -80,6 +80,37 @@ class AuthzService:
             return
         raise HTTPException(status_code=403, detail="insufficient role permissions")
 
+    def resolve_actor_identity(
+        self,
+        *,
+        actor_user_id: str | None,
+        claimed_user_id: str | None = None,
+        claim_field: str = "actor_user_id",
+        allow_admin_override: bool = True,
+    ) -> tuple[Actor, str]:
+        """Resolve request actor consistently across query + payload forms.
+
+        Transitional behavior:
+        - If `actor_user_id` is present, it is the primary identity source.
+        - If only `claimed_user_id` is present, it is used for backward compatibility.
+        - If both are present and differ, only admin/superadmin can override.
+        """
+        resolved_actor_user_id = str(actor_user_id or claimed_user_id or "").strip()
+        if not resolved_actor_user_id:
+            raise HTTPException(status_code=401, detail="missing actor identity")
+
+        actor = self.actor(resolved_actor_user_id)
+        cleaned_claimed = str(claimed_user_id or "").strip() or None
+        if cleaned_claimed and cleaned_claimed != actor.user_id:
+            is_admin = actor.app_role == AppAccessRole.SUPERADMIN or RoleName.ADMIN in actor.roles
+            if not (allow_admin_override and is_admin):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"actor must match {claim_field} unless admin",
+                )
+            return actor, cleaned_claimed
+        return actor, actor.user_id
+
     def role_permissions_payload(self) -> dict:
         defaults = OpsDefaultsService(self.db).get()
         role_permissions = defaults.get("role_permissions") or {}
@@ -219,6 +250,9 @@ class AuthzService:
             return
         raise HTTPException(status_code=403, detail="actor cannot modify this deal")
 
+    def can_update_deal(self, actor: Actor, deal: Deal, allowed_roles: set[RoleName]) -> bool:
+        return deal.am_user_id == actor.user_id or bool(actor.roles.intersection(allowed_roles))
+
     def require_campaign_member_or_roles(
         self,
         actor: Actor,
@@ -239,3 +273,6 @@ class AuthzService:
             return
 
         raise HTTPException(status_code=403, detail="actor is not assigned to this campaign")
+
+    def can_run_ops_job(self, actor: Actor) -> bool:
+        return bool(actor.roles.intersection({RoleName.HEAD_OPS, RoleName.ADMIN}))

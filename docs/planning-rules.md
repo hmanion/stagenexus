@@ -19,6 +19,8 @@ These are planning and control rules, not the object hierarchy.
 
 These are generation rules and scheduling defaults, not structural hierarchy rules.
 
+Stage/step hours used during campaign planning are reference data. The default CSV is `app/seeds/stage_steps_hours.csv`, and operators can seed DB-backed reference data with `PYTHONPATH=. python scripts/seed_reference_data.py`.
+
 ## Status values
 
 - Not started

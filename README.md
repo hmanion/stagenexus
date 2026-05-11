@@ -69,7 +69,26 @@ Open:
 - `http://127.0.0.1:8000/` for the demo UI
 - `http://127.0.0.1:8000/docs` for Swagger/OpenAPI docs
 
-To initialise local schema and seed data:
+To initialise local schema via migrations and seed data:
+
+```bash
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_dev_data.py
+```
+
+To seed stage/step reference data explicitly from CSV:
+
+```bash
+PYTHONPATH=. python scripts/seed_reference_data.py
+```
+
+By default this reads `app/seeds/stage_steps_hours.csv`. Override locally with:
+
+```bash
+STAGE_STEPS_CSV_PATH=/absolute/path/to/stage_steps_hours.csv
+```
+
+To force a full local reset (drop/recreate + seed), use the local-only helper:
 
 ```bash
 PYTHONPATH=. python scripts/init_db.py
@@ -89,7 +108,8 @@ PYTHONPATH=. .venv/bin/python scripts/backfill_recent_updates.py
 - `docs/roles-and-governance.md` — ownership, assignments, and approval rights
 - `docs/planning-rules.md` — calendar, health, risk, and capacity rules
 - `docs/api.md` — API areas and example requests
-- `docs/deployment.md` — environments, config, and deploy guidance
+- `docs/DEPLOYMENT.md` — environments, config, and deploy guidance
+- `docs/migrations.md` — migration workflow, policy, and safety rules
 - `docs/roadmap-and-gaps.md` — known limitations and next implementation priorities
 
 ## Core operational rules
@@ -111,4 +131,4 @@ PYTHONPATH=. .venv/bin/python scripts/backfill_recent_updates.py
 - align remaining repo language around `Deal -> Campaign -> Stage -> Step`
 - keep workflow, governance, and planning rules in separate docs rather than merging them into one model page
 - add an endpoint inventory generated from the route layer once the API stabilises
-- add migration documentation when Alembic history is formalised
+- keep schema evolution Alembic-first and avoid extending runtime schema patching

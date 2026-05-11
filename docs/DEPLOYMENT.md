@@ -30,8 +30,11 @@ Use `.env` locally and a secret manager for staging and production.
 Key variables include:
 
 - `DATABASE_URL`
+- `APP_ENV`
+- `RUNTIME_SCHEMA_COMPAT`
 - `HOLIDAY_SOURCE_URL`
 - `WORKING_WEEK`
+- `STAGE_STEPS_CSV_PATH`
 
 ## Database
 
@@ -45,11 +48,22 @@ mysql+pymysql://...
 
 SQLite is currently supported for local smoke testing.
 
-Initialise schema and seeds with:
+Initialise local schema and seeds with:
 
 ```bash
-PYTHONPATH=. python scripts/init_db.py
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_dev_data.py
 ```
+
+Seed reference data directly:
+
+```bash
+PYTHONPATH=. python scripts/seed_reference_data.py
+```
+
+Reference data defaults to `app/seeds/stage_steps_hours.csv` and can be overridden with `STAGE_STEPS_CSV_PATH` for local imports.
+
+`scripts/init_db.py` remains available as a local-only reset helper (drop/recreate + seed). It must not be used as a production migration mechanism.
 
 ## Backup and restore guidance
 
@@ -62,15 +76,23 @@ PYTHONPATH=. python scripts/init_db.py
 
 Suggested pattern:
 
-1. deploy the app in compatibility mode
-2. run migrations
+1. run migrations
+2. deploy the app
 3. flip traffic
 4. roll back the app binary if needed
 
 Backward-compatible migrations are preferred for low-risk deploys.
 
+Startup policy:
+
+- staging/production should run with `RUNTIME_SCHEMA_COMPAT=false`
+- app startup fails fast if the database is not at Alembic head
+- startup must not mutate schema in staging/production
+- staging/production must not use sqlite `DATABASE_URL`
+- staging/production must provide non-default `SECRET_KEY`
+- staging/production must have stage/step reference data in DB (seeded) or provide a valid `STAGE_STEPS_CSV_PATH`
+
 ## Current deployment caveats
 
-- migration history does not yet appear fully formalised
 - MySQL-specific indexing strategy is still listed as future work
 - authorisation hardening is not yet complete, so production exposure should be controlled carefully

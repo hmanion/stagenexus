@@ -74,12 +74,13 @@ def submit_deal(deal_id: str, actor_user_id: str, db: Session = Depends(get_db))
 @router.patch("/scopes/{deal_id}/am")
 def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depends(get_db)):
     deal = get_deal_or_404(db, deal_id)
-    require_deal_owner_or_roles(
-        db,
-        payload.actor_user_id,
-        deal,
-        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    authz = AuthzService(db)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
     )
+    if not authz.can_update_deal(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES}):
+        raise HTTPException(status_code=403, detail="actor cannot modify this deal")
 
     next_am = db.get(User, payload.am_user_id)
     if not next_am:
@@ -95,7 +96,7 @@ def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depend
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="scope",
             entity_id=deal.id,
             action="scope_am_updated",
@@ -114,12 +115,13 @@ def update_scope_am(deal_id: str, payload: ScopeAmUpdateIn, db: Session = Depend
 @router.patch("/scopes/{deal_id}/content")
 def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Session = Depends(get_db)):
     deal = get_deal_or_404(db, deal_id)
-    require_deal_owner_or_roles(
-        db,
-        payload.actor_user_id,
-        deal,
-        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    authz = AuthzService(db)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
     )
+    if not authz.can_update_deal(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES}):
+        raise HTTPException(status_code=403, detail="actor cannot modify this deal")
 
     client = db.get(Client, deal.client_id)
     if not client:
@@ -196,7 +198,7 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="scope",
             entity_id=deal.id,
             action="scope_content_updated",
@@ -233,12 +235,13 @@ def update_scope_content(deal_id: str, payload: ScopeContentUpdateIn, db: Sessio
 @router.patch("/scopes/{deal_id}/timeframe")
 def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Session = Depends(get_db)):
     deal = get_deal_or_404(db, deal_id)
-    actor = require_deal_owner_or_roles(
-        db,
-        payload.actor_user_id,
-        deal,
-        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    authz = AuthzService(db)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
     )
+    if not authz.can_update_deal(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES}):
+        raise HTTPException(status_code=403, detail="actor cannot modify this deal")
     if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
         raise HTTPException(status_code=403, detail="only managers or leadership can update scope timeframe")
     if payload.sow_start_date is None and payload.sow_end_date is None:
@@ -257,7 +260,7 @@ def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Se
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="scope",
             entity_id=deal.id,
             action="scope_timeframe_updated",
@@ -278,12 +281,13 @@ def update_scope_timeframe(deal_id: str, payload: ScopeTimeframeUpdateIn, db: Se
 @router.delete("/scopes/{deal_id}")
 def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get_db)):
     deal = get_deal_or_404(db, deal_id)
-    actor = require_deal_owner_or_roles(
-        db,
-        payload.actor_user_id,
-        deal,
-        {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+    authz = AuthzService(db)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
     )
+    if not authz.can_update_deal(actor, deal, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES}):
+        raise HTTPException(status_code=403, detail="actor cannot modify this deal")
     if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
         raise HTTPException(status_code=403, detail="only managers or leadership can delete scopes")
 
@@ -295,7 +299,7 @@ def delete_scope(deal_id: str, payload: ScopeDeleteIn, db: Session = Depends(get
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="scope",
             entity_id=deal.id,
             action="scope_deleted",
@@ -355,4 +359,3 @@ def generate_campaigns(deal_id: str, actor_user_id: str, db: Session = Depends(g
         )
         for c in generated
     ]
-

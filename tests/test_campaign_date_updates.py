@@ -39,7 +39,7 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
         public_id_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
-        authz_service_cls.return_value.actor.return_value = SimpleNamespace()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (SimpleNamespace(), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = True
         milestone_service_cls.return_value.reanchor_campaign_milestones.return_value = MilestoneReanchorResult(
             moved=2,
@@ -70,7 +70,7 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
         public_id_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
-        authz_service_cls.return_value.actor.return_value = SimpleNamespace()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (SimpleNamespace(), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = True
         milestone_service_cls.return_value.reanchor_campaign_milestones.return_value = MilestoneReanchorResult(
             moved=1,
@@ -105,7 +105,7 @@ class CampaignDateUpdateRouteTests(unittest.TestCase):
         authz_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = self.campaign
-        authz_service_cls.return_value.actor.return_value = SimpleNamespace()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (SimpleNamespace(), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = True
         payload = CampaignDatesUpdateIn(actor_user_id="actor-1", planned_start_iso=None, planned_end_iso=None)
 

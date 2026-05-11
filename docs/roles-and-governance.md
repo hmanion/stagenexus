@@ -60,4 +60,4 @@ The app is aiming to model more than assignment. It is also trying to model:
 
 ## Implementation note
 
-The project notes still list strong authorization middleware by role and ownership as unfinished work. So this document describes the intended governance model, not a fully hardened security layer.
+Authorization implementation details and endpoint-level policy mappings are documented in [authorization.md](./authorization.md). This page remains the governance intent reference.

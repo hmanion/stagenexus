@@ -6,13 +6,22 @@ from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
-from app.api.core_routes import admin_create_user, decide_capacity_override, manage_workflow_step, resolve_escalation
+from app.api.core_routes import (
+    admin_create_user,
+    decide_capacity_override,
+    decide_sow_change_request,
+    manage_workflow_step,
+    resolve_escalation,
+    run_ops_risk_capacity_job,
+)
 from app.api.permissions import can_actor_approve_scope
 from app.api.router import router
+from app.api.routes.deals import generate_campaigns, update_scope_content
 from app.api.routes.campaigns import update_campaign_assignments
-from app.models.domain import AppAccessRole, RoleName, SeniorityLevel, TeamName
+from app.models.domain import AppAccessRole, DealStatus, RoleName, SeniorityLevel, TeamName
 from app.schemas.admin import AdminUserCreateIn
 from app.schemas.campaigns import CampaignAssignmentsUpdateIn
+from app.schemas.deals import ScopeContentUpdateIn, SowChangeApproveIn
 from app.schemas.deliverables import CapacityOverrideDecisionIn
 from app.schemas.risks import EscalationResolveIn
 from app.schemas.workflow import StepManageIn
@@ -41,7 +50,7 @@ class AuthzHardeningTests(unittest.TestCase):
 
     @patch("app.api.core_routes.AuthzService")
     def test_non_admin_cannot_create_user(self, authz_service_cls: Mock) -> None:
-        authz_service_cls.return_value.actor.return_value = _actor()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (_actor(), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = False
 
         payload = AdminUserCreateIn(
@@ -71,7 +80,7 @@ class AuthzHardeningTests(unittest.TestCase):
         authz_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = SimpleNamespace(id="campaign-1", display_id="CMP-1")
-        authz_service_cls.return_value.actor.return_value = _actor()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (_actor(), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = False
 
         payload = CampaignAssignmentsUpdateIn(actor_user_id="actor-1", cm_user_id="user-2")
@@ -88,7 +97,7 @@ class AuthzHardeningTests(unittest.TestCase):
         authz_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = SimpleNamespace(id="step-1", next_owner_user_id="owner-1")
-        authz_service_cls.return_value.actor.return_value = _actor(user_id="actor-1")
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (_actor(user_id="actor-1"), "actor-1")
         authz_service_cls.return_value.has_control_permission.return_value = False
 
         payload = StepManageIn(actor_user_id="actor-1", completion_date_iso="2026-05-06")
@@ -99,7 +108,7 @@ class AuthzHardeningTests(unittest.TestCase):
 
     @patch("app.api.core_routes.AuthzService")
     def test_non_ops_actor_cannot_resolve_escalation(self, authz_service_cls: Mock) -> None:
-        authz_service_cls.return_value.actor.return_value = _actor()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (_actor(), "actor-1")
         authz_service_cls.return_value.require_any.side_effect = HTTPException(
             status_code=403,
             detail="insufficient role permissions",
@@ -119,7 +128,7 @@ class AuthzHardeningTests(unittest.TestCase):
         authz_service_cls: Mock,
     ) -> None:
         resolve_by_identifier.return_value = SimpleNamespace(id="cap-1", display_id="CAP-1")
-        authz_service_cls.return_value.actor.return_value = _actor()
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (_actor(), "actor-1")
         authz_service_cls.return_value.require_any.side_effect = HTTPException(
             status_code=403,
             detail="insufficient role permissions",
@@ -130,6 +139,82 @@ class AuthzHardeningTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as exc:
             decide_capacity_override("CAP-1", payload, db=Mock())
         self.assertEqual(exc.exception.status_code, 403)
+
+    @patch("app.api.routes.deals.AuthzService")
+    @patch("app.api.routes.deals.get_deal_or_404")
+    def test_non_owner_cannot_update_protected_deal_fields(self, get_deal_or_404: Mock, authz_service_cls: Mock) -> None:
+        get_deal_or_404.return_value = SimpleNamespace(
+            id="deal-1",
+            display_id="DEAL-1",
+            am_user_id="owner-1",
+            client_id="client-1",
+            icp=None,
+            campaign_objective=None,
+            messaging_positioning=None,
+        )
+        authz_service = authz_service_cls.return_value
+        authz_service.resolve_actor_identity.return_value = (_actor(user_id="user-2"), "user-2")
+        authz_service.can_update_deal.return_value = False
+        payload = ScopeContentUpdateIn(actor_user_id="user-2", icp="x")
+        with self.assertRaises(HTTPException) as exc:
+            update_scope_content("DEAL-1", payload, db=Mock())
+        self.assertEqual(exc.exception.status_code, 403)
+
+    @patch("app.api.routes.deals.AuthzService")
+    @patch("app.api.routes.deals.get_deal_or_404")
+    @patch("app.api.routes.deals.get_actor")
+    def test_campaign_generation_blocked_for_unauthorized_actor(
+        self, get_actor: Mock, get_deal_or_404: Mock, authz_service_cls: Mock
+    ) -> None:
+        get_deal_or_404.return_value = SimpleNamespace(status=DealStatus.READINESS_PASSED)
+        get_actor.return_value = _actor(primary_team=TeamName.SALES, seniority=SeniorityLevel.STANDARD)
+        with patch("app.api.routes.deals.can_actor_generate_campaigns", return_value=False):
+            with self.assertRaises(HTTPException) as exc:
+                generate_campaigns("DEAL-1", actor_user_id="user-2", db=Mock())
+        self.assertEqual(exc.exception.status_code, 403)
+
+    @patch("app.api.core_routes.AuthzService")
+    def test_cc_actor_cannot_decide_sow_change(self, authz_service_cls: Mock) -> None:
+        actor = _actor(roles={RoleName.CC})
+        authz_service_cls.return_value.resolve_actor_identity.return_value = (actor, "user-1")
+        authz_service_cls.return_value.require_any.side_effect = HTTPException(status_code=403, detail="insufficient")
+        payload = SowChangeApproveIn(
+            approver_user_id="user-1",
+            approver_role=RoleName.HEAD_OPS.value,
+            decision="approved",
+        )
+        with self.assertRaises(HTTPException) as exc:
+            decide_sow_change_request("SCR-1", payload, actor_user_id="user-1", db=Mock())
+        self.assertEqual(exc.exception.status_code, 403)
+
+    @patch("app.api.core_routes.AuthzService")
+    @patch("app.api.core_routes.OpsJobService")
+    def test_am_cannot_run_ops_job(self, ops_job_service_cls: Mock, authz_service_cls: Mock) -> None:
+        authz_service = authz_service_cls.return_value
+        authz_service.actor.return_value = _actor(roles={RoleName.AM})
+        authz_service.can_run_ops_job.return_value = False
+        with self.assertRaises(HTTPException) as exc:
+            run_ops_risk_capacity_job(actor_user_id="am-1", db=Mock())
+        self.assertEqual(exc.exception.status_code, 403)
+        ops_job_service_cls.assert_not_called()
+
+    def test_superadmin_can_override_mismatched_claim(self) -> None:
+        from app.services.authz_service import AuthzService
+
+        authz = AuthzService(Mock())
+        superadmin_actor = _actor(
+            user_id="admin-1",
+            roles={RoleName.ADMIN},
+            app_role=AppAccessRole.SUPERADMIN,
+        )
+        with patch.object(authz, "actor", return_value=superadmin_actor):
+            actor, effective_user_id = authz.resolve_actor_identity(
+                actor_user_id="admin-1",
+                claimed_user_id="delegated-user",
+                claim_field="requested_by_user_id",
+            )
+        self.assertEqual(actor.user_id, "admin-1")
+        self.assertEqual(effective_user_id, "delegated-user")
 
 
 if __name__ == "__main__":

@@ -1241,14 +1241,16 @@ def create_sow_change_request(campaign_id: str, payload: SowChangeCreateIn, acto
         raise HTTPException(status_code=404, detail="campaign not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor, effective_requested_by_user_id = authz.resolve_actor_identity(
+        actor_user_id=actor_user_id,
+        claimed_user_id=payload.requested_by_user_id,
+        claim_field="requested_by_user_id",
+    )
     authz.require_any(actor, {RoleName.CM, RoleName.AM, RoleName.HEAD_OPS, RoleName.ADMIN})
-    if payload.requested_by_user_id != actor_user_id and RoleName.ADMIN not in actor.roles:
-        raise HTTPException(status_code=403, detail="actor must match requested_by_user_id unless admin")
 
     req = ChangeControlService(db).create_request(
         campaign_id=campaign.id,
-        requested_by_user_id=payload.requested_by_user_id,
+        requested_by_user_id=effective_requested_by_user_id,
         impact_scope_json=payload.impact_scope_json,
     )
     db.commit()
@@ -1258,10 +1260,12 @@ def create_sow_change_request(campaign_id: str, payload: SowChangeCreateIn, acto
 @router.post("/sow-change-requests/{request_id}/decide")
 def decide_sow_change_request(request_id: str, payload: SowChangeApproveIn, actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(actor_user_id)
+    actor, effective_approver_user_id = authz.resolve_actor_identity(
+        actor_user_id=actor_user_id,
+        claimed_user_id=payload.approver_user_id,
+        claim_field="approver_user_id",
+    )
     authz.require_any(actor, {RoleName.HEAD_OPS, RoleName.HEAD_SALES, RoleName.ADMIN})
-    if payload.approver_user_id != actor_user_id and RoleName.ADMIN not in actor.roles:
-        raise HTTPException(status_code=403, detail="actor must match approver_user_id unless admin")
     requested_role = RoleName(payload.approver_role)
     if requested_role not in actor.roles and RoleName.ADMIN not in actor.roles:
         raise HTTPException(status_code=403, detail="actor does not hold the requested approver_role")
@@ -1269,7 +1273,7 @@ def decide_sow_change_request(request_id: str, payload: SowChangeApproveIn, acto
     try:
         req = ChangeControlService(db).apply_approval(
             request_id=request_id,
-            approver_user_id=payload.approver_user_id,
+            approver_user_id=effective_approver_user_id,
             approver_role=requested_role,
             decision=payload.decision,
         )
@@ -1315,10 +1319,13 @@ def mark_ready_to_publish(deliverable_id: str, actor_user_id: str, db: Session =
 @router.post("/workflow-steps/{step_id}/complete")
 def complete_workflow_step(step_id: str, payload: StepCompleteIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.CM, RoleName.CC, RoleName.CCS, RoleName.HEAD_OPS, RoleName.ADMIN})
 
-    step = WorkflowEngineService(db).set_step_complete(step_id=step_id, actor_user_id=payload.actor_user_id)
+    step = WorkflowEngineService(db).set_step_complete(step_id=step_id, actor_user_id=effective_actor_user_id)
     if step.linked_deliverable_id:
         deliverable = db.get(Deliverable, step.linked_deliverable_id)
         if deliverable:
@@ -1334,7 +1341,10 @@ def complete_workflow_step(step_id: str, payload: StepCompleteIn, db: Session = 
 @router.post("/workflow-steps/{step_id}/override-due")
 def override_workflow_step_due(step_id: str, payload: StepOverrideDueIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "override_step_due",
@@ -1350,7 +1360,7 @@ def override_workflow_step_due(step_id: str, payload: StepOverrideDueIn, db: Ses
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="workflow_step",
             entity_id=step.id,
             action="workflow_step_due_overridden",
@@ -1373,7 +1383,10 @@ def override_workflow_step_due(step_id: str, payload: StepOverrideDueIn, db: Ses
 @router.patch("/workflow-steps/{step_id}/manage")
 def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     has_step_control = authz.has_control_permission(
         actor,
         "manage_step",
@@ -1406,7 +1419,7 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
         if not can_manage_step_dates:
             raise HTTPException(status_code=403, detail="insufficient role permissions to edit step dates")
     if payload.completion_date_iso is not None:
-        is_owner = bool(existing_step.next_owner_user_id and existing_step.next_owner_user_id == payload.actor_user_id)
+        is_owner = bool(existing_step.next_owner_user_id and existing_step.next_owner_user_id == effective_actor_user_id)
         can_manage_completion = is_owner or authz.has_control_permission(
             actor,
             "manage_step_dates",
@@ -1436,7 +1449,7 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
 
     step = WorkflowEngineService(db).manage_step(
         step_id=step_id,
-        actor_user_id=payload.actor_user_id,
+        actor_user_id=effective_actor_user_id,
         status=payload.status,
         next_owner_user_id=payload.next_owner_user_id,
         waiting_on_user_id=payload.waiting_on_user_id,
@@ -1453,7 +1466,7 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="workflow_step",
             entity_id=step.id,
             action="workflow_step_managed",
@@ -1513,7 +1526,8 @@ def manage_workflow_step(step_id: str, payload: StepManageIn, db: Session = Depe
 def run_ops_risk_capacity_job(actor_user_id: str, db: Session = Depends(get_db)):
     authz = AuthzService(db)
     actor = authz.actor(actor_user_id)
-    authz.require_any(actor, {RoleName.HEAD_OPS, RoleName.ADMIN})
+    if not authz.can_run_ops_job(actor):
+        raise HTTPException(status_code=403, detail="insufficient role permissions")
 
     summary = OpsJobService(db).run_all()
     db.commit()
@@ -2001,11 +2015,14 @@ def request_capacity_override(capacity_id: str, payload: CapacityOverrideRequest
         raise HTTPException(status_code=404, detail="capacity row not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
-    if payload.actor_user_id != row.user_id:
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
+    if effective_actor_user_id != row.user_id:
         authz.require_any(actor, {RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN})
 
-    updated = CapacityOverrideService(db).request_override(row, payload.actor_user_id, payload.reason)
+    updated = CapacityOverrideService(db).request_override(row, effective_actor_user_id, payload.reason)
     db.commit()
     return {
         "id": updated.display_id,
@@ -2021,12 +2038,15 @@ def decide_capacity_override(capacity_id: str, payload: CapacityOverrideDecision
         raise HTTPException(status_code=404, detail="capacity row not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.HEAD_OPS, RoleName.ADMIN})
 
     updated = CapacityOverrideService(db).decide_override(
         row=row,
-        actor_user_id=payload.actor_user_id,
+        actor_user_id=effective_actor_user_id,
         approve=payload.approve,
         reason=payload.reason,
     )
@@ -2079,7 +2099,10 @@ def list_manual_risks(db: Session = Depends(get_db)):
 @router.post("/risks/manual")
 def create_manual_risk(payload: ManualRiskCreateIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.AM, RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN})
 
     campaign = _resolve_by_identifier(db, Campaign, payload.campaign_id)
@@ -2095,7 +2118,7 @@ def create_manual_risk(payload: ManualRiskCreateIn, db: Session = Depends(get_db
     risk = ManualRisk(
         display_id=public_ids.next_id(ManualRisk, "MRISK"),
         campaign_id=campaign.id,
-        raised_by_user_id=payload.actor_user_id,
+        raised_by_user_id=effective_actor_user_id,
         severity=severity,
         details=payload.details,
         mitigation_owner_user_id=payload.mitigation_owner_user_id,
@@ -2110,7 +2133,10 @@ def create_manual_risk(payload: ManualRiskCreateIn, db: Session = Depends(get_db
 @router.patch("/risks/manual/{risk_id}")
 def update_manual_risk(risk_id: str, payload: ManualRiskUpdateIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, _ = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN})
 
     risk = _resolve_by_identifier(db, ManualRisk, risk_id)
@@ -2152,7 +2178,10 @@ def list_escalations(db: Session = Depends(get_db)):
 @router.post("/escalations/{escalation_id}/resolve")
 def resolve_escalation(escalation_id: str, payload: EscalationResolveIn, db: Session = Depends(get_db)):
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, _ = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.HEAD_OPS, RoleName.ADMIN})
 
     escalation = _resolve_by_identifier(db, Escalation, escalation_id)

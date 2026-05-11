@@ -794,7 +794,10 @@ def update_campaign_assignments(campaign_id: str, payload: CampaignAssignmentsUp
         raise HTTPException(status_code=404, detail="campaign not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     can_manage_assignments = authz.has_control_permission(
         actor,
         "manage_campaign_assignments",
@@ -928,7 +931,7 @@ def update_campaign_assignments(campaign_id: str, payload: CampaignAssignmentsUp
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="campaign",
             entity_id=campaign.id,
             action="campaign_assignments_updated",
@@ -981,7 +984,10 @@ def update_campaign_status(campaign_id: str, payload: CampaignStatusUpdateIn, db
         raise HTTPException(status_code=404, detail="campaign not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_campaign_status",
@@ -998,11 +1004,11 @@ def update_campaign_status(campaign_id: str, payload: CampaignStatusUpdateIn, db
             "status_source": str(campaign.status_source.value if hasattr(campaign.status_source, "value") else campaign.status_source or "derived"),
         }
 
-    StatusRollupService(db).set_manual_campaign_status(campaign, new_status, payload.actor_user_id)
+    StatusRollupService(db).set_manual_campaign_status(campaign, new_status, effective_actor_user_id)
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="campaign",
             entity_id=campaign.id,
             action="campaign_status_updated",
@@ -1027,7 +1033,10 @@ def bulk_update_campaign_descendant_status(campaign_id: str, payload: CampaignDe
     if not campaign:
         raise HTTPException(status_code=404, detail="campaign not found")
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_campaign_status",
@@ -1060,14 +1069,14 @@ def bulk_update_campaign_descendant_status(campaign_id: str, payload: CampaignDe
     for step in steps:
         engine.manage_step(
             step_id=step.id,
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             status=status,
         )
     StatusRollupService(db).reset_campaign_to_derived(campaign)
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="campaign",
             entity_id=campaign.id,
             action="campaign_descendant_status_cascade",
@@ -1085,7 +1094,10 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
         raise HTTPException(status_code=404, detail="campaign not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_campaign_dates",
@@ -1137,7 +1149,7 @@ def update_campaign_dates(campaign_id: str, payload: CampaignDatesUpdateIn, db: 
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="campaign",
             entity_id=campaign.id,
             action="campaign_dates_updated",
@@ -1792,7 +1804,10 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
         raise HTTPException(status_code=404, detail="campaign not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_campaign_member_or_roles(
         actor=actor,
         campaign=campaign,
@@ -1808,7 +1823,7 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
     updated = DeliverableWorkflowService(db).transition(
         deliverable=deliverable,
         to_status=to_status,
-        actor_user_id=payload.actor_user_id,
+        actor_user_id=effective_actor_user_id,
         actor_roles=actor.roles,
         comment=payload.comment,
     )
@@ -1867,7 +1882,10 @@ def override_deliverable_due(deliverable_id: str, payload: DeliverableDueUpdateI
         raise HTTPException(status_code=404, detail="deliverable not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "override_step_due",
@@ -1887,7 +1905,7 @@ def override_deliverable_due(deliverable_id: str, payload: DeliverableDueUpdateI
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="deliverable",
             entity_id=deliverable.id,
             action="deliverable_due_overridden",
@@ -1914,7 +1932,10 @@ def update_deliverable_dates(deliverable_id: str, payload: DeliverableDatesUpdat
         raise HTTPException(status_code=404, detail="deliverable not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_deliverable_dates",
@@ -1948,7 +1969,7 @@ def update_deliverable_dates(deliverable_id: str, payload: DeliverableDatesUpdat
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="deliverable",
             entity_id=deliverable.id,
             action="deliverable_dates_updated",
@@ -1978,7 +1999,10 @@ def update_deliverable_stage(deliverable_id: str, payload: DeliverableStageUpdat
         raise HTTPException(status_code=404, detail="deliverable not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "edit_deliverable_stage",
@@ -1997,7 +2021,7 @@ def update_deliverable_stage(deliverable_id: str, payload: DeliverableStageUpdat
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="deliverable",
             entity_id=deliverable.id,
             action="deliverable_stage_updated",
@@ -2022,7 +2046,10 @@ def update_deliverable_owner(deliverable_id: str, payload: DeliverableOwnerUpdat
         raise HTTPException(status_code=404, detail="deliverable not found")
 
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_deliverable_owner",
@@ -2048,7 +2075,7 @@ def update_deliverable_owner(deliverable_id: str, payload: DeliverableOwnerUpdat
     db.add(
         ActivityLog(
             display_id=PublicIdService(db).next_id(ActivityLog, "ACT"),
-            actor_user_id=payload.actor_user_id,
+            actor_user_id=effective_actor_user_id,
             entity_type="deliverable",
             entity_id=deliverable.id,
             action="deliverable_owner_updated",
@@ -2184,12 +2211,15 @@ def increment_review_round(deliverable_id: str, payload: ReviewRoundIncrementIn,
     if not deliverable:
         raise HTTPException(status_code=404, detail="deliverable not found")
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     authz.require_any(actor, {RoleName.AM, RoleName.CM, RoleName.HEAD_OPS, RoleName.ADMIN})
     result = DeliverableWorkflowService(db).increment_round(
         deliverable=deliverable,
         round_type=payload.round_type,
-        actor_user_id=payload.actor_user_id,
+        actor_user_id=effective_actor_user_id,
         note=payload.note,
     )
     db.commit()
@@ -2395,7 +2425,10 @@ def update_milestone(milestone_id: str, payload: MilestoneUpdateIn, db: Session 
     if not milestone:
         raise HTTPException(status_code=404, detail="milestone not found")
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, _ = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_campaign_dates",
@@ -2434,7 +2467,10 @@ def update_milestone_completion(milestone_id: str, payload: MilestoneCompletionU
     if not milestone:
         raise HTTPException(status_code=404, detail="milestone not found")
     authz = AuthzService(db)
-    actor = authz.actor(payload.actor_user_id)
+    actor, _ = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     if not authz.has_control_permission(
         actor,
         "manage_step",
@@ -2457,6 +2493,11 @@ def override_milestone_sla(milestone_id: str, payload: MilestoneSlaOverrideIn, d
     milestone = _resolve_by_identifier(db, Milestone, milestone_id)
     if not milestone:
         raise HTTPException(status_code=404, detail="milestone not found")
+    authz = AuthzService(db)
+    _, effective_actor_user_id = authz.resolve_actor_identity(
+        actor_user_id=None,
+        claimed_user_id=payload.actor_user_id,
+    )
     service = MilestoneService(db)
     if payload.clear_override:
         service.clear_sla_override(milestone)
@@ -2465,7 +2506,7 @@ def override_milestone_sla(milestone_id: str, payload: MilestoneSlaOverrideIn, d
             target = MilestoneSlaHealth(str(payload.sla_health).strip().lower())
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="invalid sla_health") from exc
-        service.override_sla_health(milestone, actor_user_id=payload.actor_user_id, sla_health=target)
+        service.override_sla_health(milestone, actor_user_id=effective_actor_user_id, sla_health=target)
     db.commit()
     return {
         "id": milestone.display_id,
