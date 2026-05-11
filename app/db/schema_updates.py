@@ -39,6 +39,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             ("operational_stage_status", "VARCHAR(16) NOT NULL DEFAULT 'planning'"),
             ("sequence_number", "INTEGER NOT NULL DEFAULT 1"),
             ("current_start", "DATE"),
+            ("ready_to_publish_by_role", "VARCHAR(32)"),
             ("internal_review_rounds", "INTEGER NOT NULL DEFAULT 0"),
             ("client_review_rounds", "INTEGER NOT NULL DEFAULT 0"),
             ("amend_rounds", "INTEGER NOT NULL DEFAULT 0"),
@@ -324,6 +325,7 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
                 approved_at DATETIME,
                 scheduled_or_published_at DATETIME,
                 ready_to_publish_by_user_id VARCHAR(36),
+                ready_to_publish_by_role VARCHAR(32),
                 ready_to_publish_at DATETIME,
                 internal_review_rounds INTEGER NOT NULL DEFAULT 0,
                 client_review_rounds INTEGER NOT NULL DEFAULT 0,
@@ -346,7 +348,7 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
                 id, display_id, campaign_id, sprint_id, publication_id, owner_user_id, default_owner_role, deliverable_type, status, stage, operational_stage_status, sequence_number, title,
                 current_start, baseline_due, current_due, actual_done, internal_review_stall_threshold_days, client_review_stall_threshold_days,
                 awaiting_internal_review_since, awaiting_client_review_since, client_changes_requested_at, approved_at,
-                scheduled_or_published_at, ready_to_publish_by_user_id, ready_to_publish_at,
+                scheduled_or_published_at, ready_to_publish_by_user_id, ready_to_publish_by_role, ready_to_publish_at,
                 internal_review_rounds, client_review_rounds, amend_rounds, created_at, updated_at
             )
             SELECT
@@ -361,7 +363,7 @@ def _ensure_deliverables_sqlite_campaign_shape(conn) -> None:
                 d.title,
                 d.current_start, d.baseline_due, d.current_due, d.actual_done, d.internal_review_stall_threshold_days, d.client_review_stall_threshold_days,
                 d.awaiting_internal_review_since, d.awaiting_client_review_since, d.client_changes_requested_at, d.approved_at,
-                d.scheduled_or_published_at, d.ready_to_publish_by_user_id, d.ready_to_publish_at,
+                d.scheduled_or_published_at, d.ready_to_publish_by_user_id, NULL, d.ready_to_publish_at,
                 COALESCE(d.internal_review_rounds, 0), COALESCE(d.client_review_rounds, 0), COALESCE(d.amend_rounds, 0),
                 d.created_at, d.updated_at
             FROM deliverables d

@@ -332,7 +332,17 @@ class TimelineHealthService:
 
     @staticmethod
     def _deliverable_status(deliverable: Deliverable) -> str:
-        raw = deliverable.status.value
+        if getattr(deliverable, "cancelled_at", None):
+            return "cancelled"
+        if getattr(deliverable, "published_at", None) or getattr(deliverable, "scheduled_or_published_at", None):
+            return "done"
+        if getattr(deliverable, "ready_to_publish_at", None):
+            return "in_progress"
+        raw = str(
+            deliverable.status.value
+            if hasattr(getattr(deliverable, "status", None), "value")
+            else getattr(deliverable, "status", "not_started")
+        ).lower()
         if raw in {"complete"}:
             return "done"
         return raw

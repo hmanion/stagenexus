@@ -184,6 +184,90 @@ def _derived_deliverable_status(db: Session, deliverable: Deliverable) -> str:
     return stage.value
 
 
+def _deliverable_current_step(
+    db: Session,
+    deliverable: Deliverable,
+    *,
+    linked_steps: list[WorkflowStep] | None = None,
+) -> WorkflowStep | None:
+    explicit_current_step_id = getattr(deliverable, "current_step_id", None)
+    if explicit_current_step_id:
+        if linked_steps is not None:
+            matched = next((s for s in linked_steps if s.id == explicit_current_step_id or s.display_id == explicit_current_step_id), None)
+            if matched:
+                return matched
+        step = db.get(WorkflowStep, explicit_current_step_id)
+        if step and _step_linked_deliverable(step) == deliverable.id:
+            return step
+
+    steps = linked_steps
+    if steps is None:
+        rows = db.scalars(select(WorkflowStep).where(WorkflowStep.linked_deliverable_id == deliverable.id)).all()
+        steps = rows if isinstance(rows, list) else []
+    open_steps = [s for s in steps if s.actual_done is None]
+    if not open_steps:
+        return None
+    return sorted(
+        open_steps,
+        key=lambda s: (
+            s.current_due or date.max,
+            s.planned_work_date or date.max,
+            s.created_at or datetime.max,
+            s.id,
+        ),
+    )[0]
+
+
+def _compute_deliverable_display_status(
+    db: Session,
+    deliverable: Deliverable,
+    *,
+    linked_steps: list[WorkflowStep] | None = None,
+) -> str:
+    # Source of truth priority:
+    # cancellation -> published -> ready_to_publish -> current step -> complete -> not_started.
+    cancelled_at = getattr(deliverable, "cancelled_at", None)
+    if cancelled_at:
+        return "cancelled"
+
+    published_at = getattr(deliverable, "published_at", None) or getattr(deliverable, "scheduled_or_published_at", None)
+    if published_at:
+        return "published"
+
+    if getattr(deliverable, "ready_to_publish_at", None):
+        return "ready_to_publish"
+
+    current_step = _deliverable_current_step(db, deliverable, linked_steps=linked_steps)
+    if current_step:
+        return str(current_step.name or "in_progress").strip().lower().replace(" ", "_")
+
+    steps = linked_steps
+    if steps is None:
+        steps = db.scalars(select(WorkflowStep).where(WorkflowStep.linked_deliverable_id == deliverable.id)).all()
+    if steps:
+        any_started = any(s.actual_start is not None or _normalize_step_status(s) != GlobalStatus.NOT_STARTED for s in steps)
+        if not any_started:
+            return "not_started"
+        return "complete"
+    return "not_started"
+
+
+def _compute_deliverable_global_status(
+    db: Session,
+    deliverable: Deliverable,
+    *,
+    linked_steps: list[WorkflowStep] | None = None,
+) -> str:
+    display = _compute_deliverable_display_status(db, deliverable, linked_steps=linked_steps)
+    if display == "cancelled":
+        return GlobalStatus.CANCELLED.value
+    if display in {"not_started"}:
+        return GlobalStatus.NOT_STARTED.value
+    if display in {"complete", "published"}:
+        return GlobalStatus.DONE.value
+    return GlobalStatus.IN_PROGRESS.value
+
+
 def _evaluate_deliverable_health_batch(db: Session, deliverables: list[Deliverable]) -> dict[str, dict[str, Any]]:
     if not deliverables:
         return {}
@@ -1307,16 +1391,23 @@ def mark_ready_to_publish(deliverable_id: str, actor_user_id: str, db: Session =
         fallback_roles={RoleName.HEAD_OPS, RoleName.ADMIN},
     )
 
-    deliverable.status = DeliverableStatus.READY_TO_PUBLISH
     deliverable.ready_to_publish_by_user_id = actor_user_id
+    ready_role = "cm" if RoleName.CM in actor.roles else ("cc" if RoleName.CC in actor.roles else None)
+    deliverable.ready_to_publish_by_role = ready_role
     deliverable.ready_to_publish_at = datetime.utcnow()
     refresh_campaign_health(db, campaign.id)
     db.commit()
+    current_step = _deliverable_current_step(db, deliverable)
     return {
         "deliverable_id": deliverable.id,
         "deliverable_display_id": deliverable.display_id,
-        "status": deliverable.status.value,
+        "status": _compute_deliverable_global_status(db, deliverable),
+        "display_status": _compute_deliverable_display_status(db, deliverable),
+        # Deprecated compatibility alias. Do not use as source of truth.
+        "delivery_status": _compute_deliverable_display_status(db, deliverable),
+        "current_step_id": current_step.display_id if current_step else None,
         "ready_to_publish_by_user_id": deliverable.ready_to_publish_by_user_id,
+        "ready_to_publish_by_role": getattr(deliverable, "ready_to_publish_by_role", None),
         "ready_to_publish_at": deliverable.ready_to_publish_at,
     }
 

@@ -684,6 +684,15 @@ function statusChip(value) {
   return `<span class="${cls}">${output}</span>`;
 }
 
+function deliverableStepPill(source) {
+  const stepId = String(source?.current_step_id || '').trim();
+  const stepName = String(source?.current_step_name || '').trim();
+  const displayStatus = String(source?.display_status || '').trim();
+  const fallback = String(source?.status || source?.deliverable_status || 'not_started').trim();
+  const label = stepName || stepId || displayStatus || fallback;
+  return `<span class="tag neutral">${escapeHtml(label)}</span>`;
+}
+
 function severityChip(value) {
   const v = String(value || '').toLowerCase();
   if (v === 'critical' || v === 'high') return "<span class='tag risk'>High</span>";
@@ -3586,9 +3595,7 @@ function deliverableModuleCard(deliverable, opts = {}) {
   const deliverableOwnerId = opts.ownerId || `${idPrefix}Owner_${d.id || 'deliverable'}`;
   const stageLabel = formatStageLabel(d.stage || 'planning', 'Planning');
   const actionRow = opts.actionsHtml ? `<div class='actions'>${opts.actionsHtml}</div>` : '';
-  const statusControl = opts.statusControlHtml || (canAdvanceDeliverableStatus
-    ? deliverableStatusDropdown(d, opts.dropdownContext || 'deliverables')
-    : readonlyStatusPillDropdown(d.status || 'not_started', 'deliverable', d.id || ''));
+  const statusControl = opts.statusControlHtml || deliverableStepPill(d);
   const ownerControl = opts.ownerControlHtml || (canManageDeliverableOwner
     ? `
           <input type='hidden' id='${deliverableOwnerId}' data-owner-hidden='1' value='${d.owner_user_id || ''}' />
@@ -3619,7 +3626,7 @@ function deliverableModuleCard(deliverable, opts = {}) {
   const wrapperEditClass = editMode && !opts.popover ? ' is-editing' : '';
   const chevronHtml = opts.popover ? '' : "<span class='module-chevron'>▸</span>";
   const summaryParts = [
-    `<span class='summary-pill-slot slot-status' data-slot='status'>${statusChip(d.status || 'not_started')}</span>`,
+    `<span class='summary-pill-slot slot-status' data-slot='status'>${deliverableStepPill(d)}</span>`,
     `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_start' data-slot='timeframe_start'>${start !== '-' ? `${start} →` : ''}</span>`,
     `<span class='module-summary-text summary-secondary summary-slot slot-timeframe_end' data-slot='timeframe_end'>${due}</span>`,
     `<span class='summary-owner summary-slot slot-owner' data-slot='owner'>${userPill(ownerInitials, true, ownerName === '-' ? null : ownerName, { userId: d.owner_user_id || '' })}</span>`,
@@ -3629,7 +3636,7 @@ function deliverableModuleCard(deliverable, opts = {}) {
   const summaryInlineHtml = opts.popover ? '' : `<div class='module-summary-inline module-summary-grid deliverable-summary-grid'>${summaryParts}</div>`;
   const subtitle = cardSlotEnabled('deliverable', 'subtitle') ? `${toTitle(String(d.type || d.deliverable_type || 'deliverable'))}` : '';
   const footer = moduleFooterHtml('deliverable', {
-    statusHtml: statusChip(d.status || 'not_started'),
+    statusHtml: deliverableStepPill(d),
     avatarsHtml: moduleAvatarStack([{ initials: ownerInitials || '--', name: ownerName === '-' ? '' : ownerName }]),
     dueText: d.current_due ? `Due ${niceDate(d.current_due)}` : '',
     actionsHtml: openButton || actionRow,
@@ -3677,7 +3684,7 @@ function deliverableModuleCard(deliverable, opts = {}) {
             ${showStage ? stageControl : ''}
             ${dueControl}
             ` : ''}
-            ${cardSlotEnabled('deliverable', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>${stageLabel}</span><span class='tag'>${toTitle(String(d.status || 'not_started'))}</span></div></div>` : ''}
+            ${cardSlotEnabled('deliverable', 'tags') ? `<div class='module-row span-2'><span>Tags:</span><div class='card-tags'><span class='tag'>${stageLabel}</span>${deliverableStepPill(d)}</div></div>` : ''}
           </div>
           ${footer}
         </${wrapperTag}>
@@ -3789,35 +3796,15 @@ function updateListCachesForStatus(moduleType, objectId, newStatus, extras = {})
 
 function listStatusControl(row, moduleType, status) {
   const type = String(moduleType || '').toLowerCase();
+  if (type === 'deliverable') {
+    return deliverableStepPill(row || {});
+  }
   const objectId = String(row?.id || '').trim();
   const editable = (
     (type === 'step' && canUseControl('manage_step', currentRole)) ||
-    (type === 'deliverable' && canUseControl('advance_deliverable', currentRole)) ||
     (type === 'campaign' && canUseControl('manage_campaign_status', currentRole))
   );
   if (!editable || !objectId || !status) return status ? statusChip(status) : '';
-  if (type === 'deliverable') {
-    const currentRaw = String(row?.delivery_status || deliverableRawStatusFromGlobal(status)).toLowerCase();
-    const next = deliverableNextTransitions(currentRaw);
-    const options = [{ value: normalizeStatusValue(globalStatusFromDeliverableStatus(currentRaw)), raw: currentRaw }];
-    const seen = new Set(options.map(o => normalizeStatusValue(o.value)));
-    for (const nxt of next) {
-      const gv = normalizeStatusValue(globalStatusFromDeliverableStatus(nxt));
-      if (seen.has(gv)) continue;
-      seen.add(gv);
-      options.push({ value: gv, raw: nxt });
-    }
-    return statusPillDropdown({
-      id: `listDelStatusDrop_${objectId}`,
-      current: status,
-      currentRaw,
-      options,
-      objectType: 'deliverable',
-      objectId,
-      context: 'list',
-      ariaLabel: `Status for ${String(row?.title || 'deliverable')}`,
-    });
-  }
   return statusPillDropdown({
     id: `listStatusDrop_${type}_${objectId}`,
     current: status,
@@ -5340,6 +5327,9 @@ function buildCampaignRows(campaignItems = [], workspaceMap = {}) {
       id: deliverable.id,
       title: deliverable.title || deliverable.id || 'Deliverable',
       status: normalizeStatusValue(deliverable.status || 'not_started'),
+      display_status: String(deliverable.display_status || ''),
+      current_step_id: String(deliverable.current_step_id || ''),
+      current_step_name: String(deliverable.current_step_name || ''),
       delivery_status: String(deliverable.delivery_status || deliverableRawStatusFromGlobal(deliverable.status || 'not_started')).toLowerCase(),
       health: '',
       timeframe_start: deliverable?.current_start || deliverable?.timeframe_start || null,

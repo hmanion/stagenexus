@@ -87,15 +87,17 @@ from app.api.core_routes import (
     _actor_has_full_scope_campaign_visibility,
     _campaign_for_deliverable,
     _campaign_timeframe_from_milestones,
+    _compute_deliverable_display_status,
+    _compute_deliverable_global_status,
     _delete_campaign_graph,
     _delete_deliverable_graph,
     _deliverable_matches_slot_lane,
+    _deliverable_current_step,
     _deliverable_stage_from_record,
     _derived_deliverable_status,
     _evaluate_deliverable_health,
     _initials_for_user_id,
     _normalize_campaign_status,
-    _normalize_deliverable_status,
     _normalize_step_status,
     _participant_initials_for_step,
     _step_module_type,
@@ -569,13 +571,11 @@ def list_campaigns(
         for campaign_id, rows in milestones_by_campaign.items()
     }
 
-    deliverable_counts = db.execute(
-        select(Deliverable.campaign_id, Deliverable.status, func.count())
-        .where(Deliverable.campaign_id.in_(campaign_ids))
-        .group_by(Deliverable.campaign_id, Deliverable.status)
+    deliverable_rows = db.scalars(
+        select(Deliverable).where(Deliverable.campaign_id.in_(campaign_ids))
     ).all()
     query_count += 1
-    fetched_child_records += len(deliverable_counts)
+    fetched_child_records += len(deliverable_rows)
     work_counts = db.execute(
         select(WorkflowStep.campaign_id, WorkflowStep.normalized_status, func.count())
         .where(WorkflowStep.campaign_id.in_(campaign_ids))
@@ -585,22 +585,28 @@ def list_campaigns(
     fetched_child_records += len(work_counts)
 
     d_summary_by_campaign: dict[str, dict[str, int]] = {}
-    for campaign_id, d_status, count in deliverable_counts:
-        summary = d_summary_by_campaign.setdefault(campaign_id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0})
-        summary["total"] += int(count or 0)
-        normalized = _normalize_deliverable_status(d_status)
-        if normalized == GlobalStatus.NOT_STARTED:
-            summary["not_started"] += int(count or 0)
-        elif normalized in {
-            GlobalStatus.IN_PROGRESS,
-            GlobalStatus.ON_HOLD,
-            GlobalStatus.BLOCKED_CLIENT,
-            GlobalStatus.BLOCKED_INTERNAL,
-            GlobalStatus.BLOCKED_DEPENDENCY,
-        }:
-            summary["in_progress"] += int(count or 0)
-        elif normalized == GlobalStatus.DONE:
-            summary["done"] += int(count or 0)
+    step_rows_for_deliverables = db.scalars(
+        select(WorkflowStep).where(WorkflowStep.linked_deliverable_id.in_([d.id for d in deliverable_rows]))
+    ).all() if deliverable_rows else []
+    steps_by_deliverable_for_summary: dict[str, list[WorkflowStep]] = {}
+    for step in step_rows_for_deliverables:
+        linked_id = _step_linked_deliverable(step)
+        if linked_id:
+            steps_by_deliverable_for_summary.setdefault(linked_id, []).append(step)
+    for d in deliverable_rows:
+        summary = d_summary_by_campaign.setdefault(d.campaign_id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0})
+        summary["total"] += 1
+        normalized = _compute_deliverable_global_status(
+            db,
+            d,
+            linked_steps=steps_by_deliverable_for_summary.get(d.id, []),
+        )
+        if normalized == GlobalStatus.NOT_STARTED.value:
+            summary["not_started"] += 1
+        elif normalized == GlobalStatus.DONE.value:
+            summary["done"] += 1
+        else:
+            summary["in_progress"] += 1
 
     w_summary_by_campaign: dict[str, dict[str, int]] = {}
     for campaign_id, w_status, count in work_counts:
@@ -1162,7 +1168,20 @@ def list_deliverables(
         for e in db.scalars(select(WorkflowStepEffort).where(WorkflowStepEffort.workflow_step_id.in_(step_ids))).all():
             efforts_by_step.setdefault(e.workflow_step_id, []).append(e)
     timeline_health = TimelineHealthService(db)
-    all_items = [
+    deliverable_steps_for_items = db.scalars(
+        select(WorkflowStep).where(WorkflowStep.linked_deliverable_id.in_([d.id for d in items]))
+    ).all() if items else []
+    steps_by_deliverable_for_items: dict[str, list[WorkflowStep]] = {}
+    for step in deliverable_steps_for_items:
+        linked_id = _step_linked_deliverable(step)
+        if linked_id:
+            steps_by_deliverable_for_items.setdefault(linked_id, []).append(step)
+    all_items = []
+    for d in items:
+        linked_steps = steps_by_deliverable_for_items.get(d.id, [])
+        current_step = _deliverable_current_step(db, d, linked_steps=linked_steps)
+        display_status = _compute_deliverable_display_status(db, d, linked_steps=linked_steps)
+        all_items.append(
             {
                 "id": d.display_id,
                 "deliverable_internal_id": d.id,
@@ -1178,9 +1197,13 @@ def list_deliverables(
                 ),
                 "type": d.deliverable_type.value,
                 "module_type": "deliverable",
-                "status": _normalize_deliverable_status(d.status).value,
-                "delivery_status": d.status.value,
+                "status": _compute_deliverable_global_status(db, d, linked_steps=linked_steps),
+                "display_status": display_status,
+                # Deprecated compatibility alias. Do not use as source of truth.
+                "delivery_status": display_status,
                 "derived_status": _derived_deliverable_status(db, d),
+                "current_step_id": current_step.display_id if current_step else None,
+                "current_step_name": current_step.name if current_step else None,
                 "health": timeline_health.evaluate_deliverable(
                     deliverable=d,
                     campaign=campaigns_by_id.get(d.campaign_id) if d.campaign_id else None,
@@ -1220,8 +1243,7 @@ def list_deliverables(
                     )
                 ],
             }
-            for d in items
-    ]
+        )
     if status:
         all_items = [i for i in all_items if i["status"] == status]
     if q:
@@ -1271,7 +1293,7 @@ def reviews_queue(actor_user_id: str, role: str, db: Session = Depends(get_db)):
             "round_number": w.round_number,
             "deliverable_id": d.display_id,
             "deliverable_title": d.title,
-            "deliverable_status": d.status.value,
+            "deliverable_status": _compute_deliverable_display_status(db, d),
             "campaign_id": campaign.display_id if campaign else None,
             "campaign_title": campaign.title if campaign else None,
             "window_start": w.window_start.isoformat(),
@@ -1369,16 +1391,23 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
     windows_by_deliverable: dict[str, list[ReviewWindow]] = {}
     for w in review_windows:
         windows_by_deliverable.setdefault(w.deliverable_id, []).append(w)
+    steps_by_deliverable: dict[str, list[WorkflowStep]] = {}
+    for step in steps:
+        linked = _step_linked_deliverable(step)
+        if linked:
+            steps_by_deliverable.setdefault(linked, []).append(step)
     for d in deliverables:
-        deliverable_status_counts[d.status.value] = deliverable_status_counts.get(d.status.value, 0) + 1
+        status_key = _compute_deliverable_global_status(db, d, linked_steps=steps_by_deliverable.get(d.id, []))
+        deliverable_status_counts[status_key] = deliverable_status_counts.get(status_key, 0) + 1
 
     review_counts = {"pending_internal": 0, "pending_client": 0, "changes_requested": 0}
     for d in deliverables:
-        if d.status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+        display_status = _compute_deliverable_display_status(db, d, linked_steps=steps_by_deliverable.get(d.id, []))
+        if "internal_review" in display_status:
             review_counts["pending_internal"] += 1
-        if d.status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if "client_review" in display_status:
             review_counts["pending_client"] += 1
-        if d.status == DeliverableStatus.CLIENT_CHANGES_REQUESTED:
+        if "changes_requested" in display_status:
             review_counts["changes_requested"] += 1
 
     sprint_summary = []
@@ -1547,9 +1576,16 @@ def campaign_workspace(campaign_id: str, db: Session = Depends(get_db)):
                     "title": d.title,
                     "module_type": "deliverable",
                     "type": d.deliverable_type.value,
-                    "status": _normalize_deliverable_status(d.status).value,
-                    "delivery_status": d.status.value,
+                    "status": _compute_deliverable_global_status(db, d, linked_steps=steps_by_deliverable.get(d.id, [])),
+                    "display_status": _compute_deliverable_display_status(db, d, linked_steps=steps_by_deliverable.get(d.id, [])),
+                    # Deprecated compatibility alias. Do not use as source of truth.
+                    "delivery_status": _compute_deliverable_display_status(db, d, linked_steps=steps_by_deliverable.get(d.id, [])),
                     "derived_status": _derived_deliverable_status(db, d),
+                    "current_step_id": (
+                        _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, [])).display_id
+                        if _deliverable_current_step(db, d, linked_steps=steps_by_deliverable.get(d.id, []))
+                        else None
+                    ),
                     "health": timeline_health.evaluate_deliverable(
                         deliverable=d,
                         campaign=campaign,
@@ -1726,9 +1762,12 @@ def transition_deliverable(deliverable_id: str, payload: DeliverableTransitionIn
     health_payload = _evaluate_deliverable_health(db, updated)
     return {
         "id": updated.display_id,
-        "status": _normalize_deliverable_status(updated.status).value,
-        "delivery_status": updated.status.value,
+        "status": _compute_deliverable_global_status(db, updated),
+        "display_status": _compute_deliverable_display_status(db, updated),
+        # Deprecated compatibility alias. Do not use as source of truth.
+        "delivery_status": _compute_deliverable_display_status(db, updated),
         "derived_status": _derived_deliverable_status(db, updated),
+        "current_step_id": (_deliverable_current_step(db, updated).id if _deliverable_current_step(db, updated) else None),
         "health": health_payload["health"],
         "health_reason": health_payload["health_reason"],
         "buffer_working_days_remaining": health_payload["buffer_working_days_remaining"],
@@ -2018,9 +2057,12 @@ def deliverable_history(deliverable_id: str, db: Session = Depends(get_db)):
         "deliverable": {
             "id": deliverable.display_id,
             "title": deliverable.title,
-            "status": _normalize_deliverable_status(deliverable.status).value,
-            "delivery_status": deliverable.status.value,
+            "status": _compute_deliverable_global_status(db, deliverable),
+            "display_status": _compute_deliverable_display_status(db, deliverable),
+            # Deprecated compatibility alias. Do not use as source of truth.
+            "delivery_status": _compute_deliverable_display_status(db, deliverable),
             "derived_status": _derived_deliverable_status(db, deliverable),
+            "current_step_id": (_deliverable_current_step(db, deliverable).id if _deliverable_current_step(db, deliverable) else None),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -2072,9 +2114,12 @@ def deliverable_review_windows(deliverable_id: str, db: Session = Depends(get_db
         "deliverable": {
             "id": deliverable.display_id,
             "title": deliverable.title,
-            "status": _normalize_deliverable_status(deliverable.status).value,
-            "delivery_status": deliverable.status.value,
+            "status": _compute_deliverable_global_status(db, deliverable),
+            "display_status": _compute_deliverable_display_status(db, deliverable),
+            # Deprecated compatibility alias. Do not use as source of truth.
+            "delivery_status": _compute_deliverable_display_status(db, deliverable),
             "derived_status": _derived_deliverable_status(db, deliverable),
+            "current_step_id": (_deliverable_current_step(db, deliverable).id if _deliverable_current_step(db, deliverable) else None),
             "health": _evaluate_deliverable_health(db, deliverable)["health"],
             "stage": _deliverable_stage_from_record(deliverable).value,
             "internal_review_rounds": deliverable.internal_review_rounds,
@@ -2465,3 +2510,8 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "over_capacity_rows": len(over_capacity_rows),
         "open_escalations": len(open_escalations),
     }
+    _compute_deliverable_display_status,
+    _compute_deliverable_global_status,
+    _deliverable_current_step,
+    _compute_deliverable_display_status,
+    _compute_deliverable_global_status,

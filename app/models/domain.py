@@ -422,6 +422,8 @@ class Deliverable(Base, TimestampMixin):
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     default_owner_role: Mapped[str | None] = mapped_column(String(11))
     deliverable_type: Mapped[DeliverableType] = mapped_column(Enum(DeliverableType), nullable=False)
+    # Deprecated compatibility field. Operational progress is derived from linked workflow steps
+    # and milestone timestamps; this field must not be treated as source of truth.
     status: Mapped[DeliverableStatus] = mapped_column(Enum(DeliverableStatus), default=DeliverableStatus.PLANNED, nullable=False)
     stage: Mapped[DeliverableStage] = mapped_column(
         Enum(DeliverableStage, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
@@ -447,6 +449,7 @@ class Deliverable(Base, TimestampMixin):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime)
     scheduled_or_published_at: Mapped[datetime | None] = mapped_column(DateTime)
     ready_to_publish_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    ready_to_publish_by_role: Mapped[str | None] = mapped_column(String(32))
     ready_to_publish_at: Mapped[datetime | None] = mapped_column(DateTime)
     internal_review_rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     client_review_rounds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

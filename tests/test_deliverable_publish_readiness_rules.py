@@ -32,7 +32,8 @@ def test_ready_to_publish_transition_captures_actor_user() -> None:
     ), patch("app.api.core_routes.AuthzService", return_value=authz):
         response = mark_ready_to_publish("DEL-001", actor_user_id="cm-1", db=db)
 
-    assert response["status"] == "ready_to_publish"
+    assert response["display_status"] == "ready_to_publish"
+    assert response["delivery_status"] == "ready_to_publish"
     assert response["ready_to_publish_by_user_id"] == "cm-1"
 
 
@@ -71,6 +72,7 @@ def test_deliverable_history_returns_transition_history(db_session) -> None:
         deliverable_type=DeliverableType.ARTICLE,
         status=DeliverableStatus.READY_TO_PUBLISH,
         title="Article 1",
+        ready_to_publish_at=datetime.utcnow(),
     )
     db_session.add(deliverable)
     db_session.flush()

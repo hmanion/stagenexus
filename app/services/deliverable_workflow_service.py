@@ -80,6 +80,7 @@ class DeliverableWorkflowService:
             raise HTTPException(status_code=400, detail="comment is required when client changes are requested")
 
         now = datetime.utcnow()
+        # Deprecated compatibility write. API/UI status is now computed from workflow steps and milestones.
         deliverable.status = to_status
         self._apply_review_timestamps(deliverable, to_status, now)
         self._apply_waiting_state_to_open_steps(deliverable.id, to_status, now)

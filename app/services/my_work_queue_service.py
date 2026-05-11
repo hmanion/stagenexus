@@ -6,7 +6,7 @@ from datetime import date, datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models.domain import Campaign, Deliverable, DeliverableStatus, WaitingOnType, WorkflowStep, WorkflowStepEffort
+from app.models.domain import Campaign, Deliverable, WaitingOnType, WorkflowStep, WorkflowStepEffort
 from app.services.calendar_service import build_default_working_calendar
 
 
@@ -88,9 +88,12 @@ class MyWorkQueueService:
 
         buckets = QueueBuckets(now=[], next_10_working_days=[], blocked=[], awaiting_internal_review=[], awaiting_client_review=[])
         for step in steps:
-            item = self._item(step, deliverables_by_id, campaigns_by_id, today)
             linked_id = self._linked_deliverable_id(step)
-            bucket = self._classify(step, deliverables_by_id.get(linked_id) if linked_id else None, today, window_end)
+            linked_deliverable = deliverables_by_id.get(linked_id) if linked_id else None
+            if linked_deliverable and self._deliverable_display_status(linked_deliverable) == "cancelled":
+                continue
+            item = self._item(step, deliverables_by_id, campaigns_by_id, today)
+            bucket = self._classify(step, linked_deliverable, today, window_end)
             getattr(buckets, bucket).append(item)
 
         for arr in [buckets.now, buckets.blocked, buckets.awaiting_internal_review, buckets.awaiting_client_review, buckets.next_10_working_days]:
@@ -122,9 +125,9 @@ class MyWorkQueueService:
             return "now"
         if step.waiting_on_type is not None:
             return "blocked"
-        if deliverable and deliverable.status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+        if deliverable and self._deliverable_display_status(deliverable).find("internal_review") >= 0:
             return "awaiting_internal_review"
-        if deliverable and deliverable.status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if deliverable and self._deliverable_display_status(deliverable).find("client_review") >= 0:
             return "awaiting_client_review"
         return "next_10_working_days"
 
@@ -164,7 +167,7 @@ class MyWorkQueueService:
             "deliverable": {
                 "id": deliverable.display_id if deliverable else None,
                 "title": deliverable.title if deliverable else None,
-                "status": deliverable.status.value if deliverable else None,
+                "status": self._deliverable_display_status(deliverable) if deliverable else None,
             },
             "campaign": {
                 "id": campaign.display_id if campaign else None,
@@ -198,14 +201,25 @@ class MyWorkQueueService:
             score += 100
         if step.waiting_on_type is not None:
             score += 80
-        if deliverable and deliverable.status == DeliverableStatus.AWAITING_CLIENT_REVIEW:
+        if deliverable and self._deliverable_display_status(deliverable).find("client_review") >= 0:
             score += 70
-        if deliverable and deliverable.status == DeliverableStatus.AWAITING_INTERNAL_REVIEW:
+        if deliverable and self._deliverable_display_status(deliverable).find("internal_review") >= 0:
             score += 60
         if days_until_due is not None:
             score += max(0, 20 - days_until_due)
         score += min(max(waiting_age_days, 0), 20)
         return score
+
+    @staticmethod
+    def _deliverable_display_status(deliverable: Deliverable) -> str:
+        if getattr(deliverable, "cancelled_at", None):
+            return "cancelled"
+        if getattr(deliverable, "published_at", None) or getattr(deliverable, "scheduled_or_published_at", None):
+            return "published"
+        if getattr(deliverable, "ready_to_publish_at", None):
+            return "ready_to_publish"
+        # Compatibility fallback while current_step_id adoption is in progress.
+        return str(getattr(deliverable, "status", "not_started").value if hasattr(getattr(deliverable, "status", None), "value") else getattr(deliverable, "status", "not_started")).lower()
 
     def _list_rows(self, buckets: QueueBuckets, actor_user_id: str) -> list[dict]:
         rows: list[dict] = []
