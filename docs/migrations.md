@@ -40,6 +40,7 @@
 - Migration is additive or explicitly safe for rollout.
 - Indexes/constraints match model intent.
 - No hidden schema mutation added to startup/runtime repair code.
+- Runtime repair code is allowed only for local/dev compatibility and data hygiene, such as removing empty optional stages and their milestones when older local data no longer matches module-driven generation rules.
 - Upgrade and rollback paths are explicit and understandable.
 
 ## Rollback expectations

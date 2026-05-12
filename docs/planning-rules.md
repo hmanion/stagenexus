@@ -14,10 +14,24 @@ These are planning and control rules, not the object hierarchy.
 
 ## Campaign generation defaults
 
-- demand create and demand reach are generated as four campaign sprints at roughly 90-day spacing
-- demand capture is generated as a separate annual campaign
+- demand create/reach work is generated as four campaign sprints at roughly 90-day spacing
+- `options_json.demand_module_mode` controls which modules are created for demand sprint campaigns
+- `create_only` demand mode creates only the `create` module, omits reach, and does not create promotion or reporting work
+- `create_reach` and `create_reach_capture` demand modes create both `create` and `reach` modules for the sprint campaigns
+- `create_reach_capture` also generates demand capture as a separate annual campaign
+- demand capture campaigns include only the `capture` module and lead-total deliverable, starting in production; they do not create promotion or reporting stages
 
 These are generation rules and scheduling defaults, not structural hierarchy rules.
+
+## Stage creation rules
+
+- planning and production are baseline stages for campaigns
+- promotion is conditional
+- demand campaigns get promotion only when reach is enabled
+- non-demand campaigns keep promotion when promotional deliverables or promotion-linked workflow exists
+- reporting is conditional
+- demand campaigns get reporting only when reach is enabled and reporting work exists
+- empty optional promotion/reporting stages are removed during integrity repair, along with their stage-linked milestones
 
 Stage/step hours used during campaign planning are reference data. The default CSV is `app/seeds/stage_steps_hours.csv`, and operators can seed DB-backed reference data with `PYTHONPATH=. python scripts/seed_reference_data.py`.
 
@@ -44,6 +58,8 @@ Stage/step hours used during campaign planning are reference data. The default C
 - if any stage is Off Track, the campaign cannot be On Track
 
 This means campaign health should be constrained by lower-level delivery conditions.
+
+Campaign list responses now evaluate timeline health at read time so list pills match the campaign workspace view. Stored campaign health fields remain useful for persistence and audit context, but the displayed list health should be treated as the live timeline-health result when child records are available.
 
 ## Risk rules
 

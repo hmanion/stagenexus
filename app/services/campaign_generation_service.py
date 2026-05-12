@@ -80,6 +80,9 @@ class CampaignGenerationService:
 
             if line.product_type == CampaignType.DEMAND:
                 mode = ((line.options_json or {}).get("demand_module_mode") or "create_reach_capture").strip().lower()
+                sprint_modules = self._resolve_demand_sprint_modules(line)
+                has_reach = "reach" in sprint_modules
+                sprint_track = "create_reach" if has_reach else "create"
                 for i in range(1, 5):
                     sprint_start = sow_start + timedelta(days=(i - 1) * 90)
                     sprint_end = sprint_start + timedelta(days=89)
@@ -96,21 +99,31 @@ class CampaignGenerationService:
                             scope=scope,
                             campaign_type=line.product_type,
                             tier=line.tier,
-                            demand_track="create_reach",
+                            demand_track=sprint_track,
                             demand_sprint_number=i,
                         ),
                         planned_start_date=sprint_start,
                         planned_end_date=sprint_end,
                         is_demand_sprint=True,
                         demand_sprint_number=i,
-                        demand_track="create_reach",
+                        demand_track=sprint_track,
                     )
                     generated.append(cr_campaign)
                     self._create_campaign_assignments(cr_campaign, scope)
-                    for module in ["create", "reach"]:
+                    for module in sprint_modules:
                         self.db.add(ProductModule(campaign_id=cr_campaign.id, module_name=module, enabled=True))
-                    self._create_milestones(cr_campaign, template, sprint_start)
-                    deliverables = self._resolve_deliverables(line=line, include_lead_total=False)
+                    self._create_milestones(
+                        cr_campaign,
+                        template,
+                        sprint_start,
+                        include_promotion=has_reach,
+                        include_reporting=has_reach,
+                    )
+                    deliverables = self._resolve_deliverables(
+                        line=line,
+                        include_lead_total=False,
+                        include_reporting=has_reach,
+                    )
                     created_deliverables: list[Deliverable] = []
                     for d in deliverables:
                         created_deliverables.append(self._create_deliverable_with_steps(
@@ -158,7 +171,13 @@ class CampaignGenerationService:
                     generated.append(cap_campaign)
                     self._create_campaign_assignments(cap_campaign, scope)
                     self.db.add(ProductModule(campaign_id=cap_campaign.id, module_name="capture", enabled=True))
-                    self._create_milestones(cap_campaign, template, sow_start)
+                    self._create_milestones(
+                        cap_campaign,
+                        template,
+                        sow_start,
+                        include_promotion=False,
+                        include_reporting=False,
+                    )
                     lead_target = self._response_target_leads_for_line(line)
                     created = self._create_deliverable_with_steps(
                         scope=scope,
@@ -169,6 +188,7 @@ class CampaignGenerationService:
                         template=template,
                         campaign_start=sow_start,
                         lead_target=lead_target,
+                        stage_override=DeliverableStage.PRODUCTION,
                     )
                     self._create_csv_stage_steps_for_campaign(
                         campaign=cap_campaign,
@@ -519,14 +539,27 @@ class CampaignGenerationService:
             return ["capture"]
         return ["reach"]
 
-    def _resolve_deliverables(self, line: ScopeProductLine, include_lead_total: bool) -> list[DeliverableType]:
+    def _resolve_demand_sprint_modules(self, line: ScopeProductLine) -> list[str]:
+        mode = ((line.options_json or {}).get("demand_module_mode") or "create_reach_capture").strip().lower()
+        if mode == "create_only":
+            return ["create"]
+        return ["create", "reach"]
+
+    def _resolve_deliverables(
+        self,
+        line: ScopeProductLine,
+        include_lead_total: bool,
+        include_reporting: bool = True,
+    ) -> list[DeliverableType]:
         base: list[DeliverableType] = []
         campaign_type = line.product_type
         tier = line.tier
 
         if campaign_type == CampaignType.DEMAND:
-            base.extend([DeliverableType.ARTICLE, DeliverableType.ARTICLE, DeliverableType.VIDEO, DeliverableType.REPORT])
-            if tier.lower() in {"silver", "gold"}:
+            base.extend([DeliverableType.ARTICLE, DeliverableType.ARTICLE, DeliverableType.VIDEO])
+            if include_reporting:
+                base.append(DeliverableType.REPORT)
+            if include_reporting and tier.lower() in {"silver", "gold"}:
                 base.append(DeliverableType.ENGAGEMENT_LIST)
             if include_lead_total:
                 base.append(DeliverableType.LEAD_TOTAL)
@@ -600,16 +633,31 @@ class CampaignGenerationService:
         client = int(by_type.get("client", defaults.get("client", 3)))
         return max(internal, 1), max(client, 1)
 
-    def _create_milestones(self, campaign: Campaign, template: TemplateVersion, campaign_start: date | None) -> None:
+    def _create_milestones(
+        self,
+        campaign: Campaign,
+        template: TemplateVersion,
+        campaign_start: date | None,
+        *,
+        include_promotion: bool = True,
+        include_reporting: bool = True,
+    ) -> None:
         anchor_start = campaign_start or date.today()
         required_stage_names = set(STAGE_MILESTONE_MAP.keys())
+        if not include_promotion:
+            required_stage_names.discard("promotion")
+        if not include_reporting:
+            required_stage_names.discard("reporting")
         stage_ids = self.stage_integrity.stage_ids_for_campaign(campaign.id, required_stage_names)
         stage_name_by_milestone = {
             milestone_name: stage_name
             for stage_name, milestone_names in STAGE_MILESTONE_MAP.items()
+            if stage_name in required_stage_names
             for milestone_name in milestone_names
         }
         for name, target in self._tdtimeline_default_milestones(anchor_start):
+            if name not in stage_name_by_milestone:
+                continue
             normalized_target = self.timeline.calendar.next_working_day_on_or_after(target)
             stage_name = stage_name_by_milestone.get(name)
             self.db.add(
@@ -986,10 +1034,12 @@ class CampaignGenerationService:
         template: TemplateVersion,
         campaign_start: date,
         lead_target: int | None,
+        stage_override: DeliverableStage | None = None,
     ) -> Deliverable:
         internal_threshold, client_threshold = self._review_thresholds_for_deliverable(template, deliverable_type)
         default_owner_role = self._default_owner_role_for_deliverable(deliverable_type)
         owner_user_id = self._default_owner_user_for_deliverable(campaign.id, deliverable_type)
+        deliverable_stage = stage_override or self._deliverable_stage_for_type(deliverable_type)
         deliverable = Deliverable(
             display_id=self.public_ids.next_id(Deliverable, "DEL"),
             campaign_id=campaign.id,
@@ -997,8 +1047,8 @@ class CampaignGenerationService:
             owner_user_id=owner_user_id,
             default_owner_role=default_owner_role.value if default_owner_role else None,
             deliverable_type=deliverable_type,
-            stage=self._deliverable_stage_for_type(deliverable_type),
-            operational_stage_status=self._deliverable_stage_for_type(deliverable_type),
+            stage=deliverable_stage,
+            operational_stage_status=deliverable_stage,
             title=self._deliverable_title(deliverable_type, sprint_number, lead_target),
             current_start=campaign_start,
             baseline_due=self._deliverable_due_date(scope, deliverable_type, campaign_start),

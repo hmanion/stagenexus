@@ -47,6 +47,8 @@ Typical responsibilities:
 
 Campaign owner is the assigned CM.
 
+Demand campaigns can also carry module context through `ProductModule` rows and demand sprint fields. The active module set matters for structural repair: create-only demand sprints do not require promotion or reporting stages, while create/reach sprints do.
+
 ### Stage
 A first-class planning and tracking segment inside the campaign.
 
@@ -58,6 +60,8 @@ Typical responsibilities:
 - contains execution steps
 
 Guardrail: if any stage is Off Track, the campaign cannot be On Track.
+
+Baseline stages are planning and production. Promotion and reporting are optional stages, retained only when the campaign module mix, deliverables, or workflow steps require them. Integrity repair removes empty optional stages and their milestones when the underlying work no longer exists.
 
 ### Step
 The atomic unit of execution.
@@ -108,6 +112,7 @@ Milestone carries:
 The repository and notes indicate additional domain families such as:
 
 - users, roles, teams, and assignments
+- product modules attached to campaigns
 - publications
 - reviews and review windows
 - benchmarks and performance tracking

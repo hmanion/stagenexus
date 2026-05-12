@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -82,21 +83,25 @@ def _seed_campaign_graph(db_session, *, campaign_id: str = "campaign-1", display
     return campaign
 
 
-def test_campaign_list_reads_stored_health_and_is_lightweight(db_session):
+def test_campaign_list_uses_live_timeline_health_for_pill(db_session):
     campaign = _seed_campaign_graph(db_session)
 
     with patch("app.api.routes.campaigns.TimelineHealthService.evaluate_campaign") as mocked_eval:
+        mocked_eval.return_value = (
+            SimpleNamespace(health="off_track", health_reason="stage_off_track_rollup"),
+            "production",
+        )
         payload = list_campaigns(limit=25, offset=0, db=db_session)
 
     assert payload["total"] == 1
     item = payload["items"][0]
     assert item["id"] == campaign.display_id
-    assert item["health"] == "at_risk"
-    assert item["campaign_health"] == "at_risk"
-    assert item["health_reason"] == "seeded"
+    assert item["health"] == "off_track"
+    assert item["campaign_health"] == "off_track"
+    assert item["health_reason"] == "stage_off_track_rollup"
     assert "deliverables" not in item
     assert "work_steps" not in item
-    mocked_eval.assert_not_called()
+    mocked_eval.assert_called_once()
 
 
 def test_campaign_list_paginates_before_assembly(db_session):

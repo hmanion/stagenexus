@@ -10,8 +10,10 @@ Purpose: keep a compact, up-to-date decision log so implementation stays consist
 - Working week: Mon-Thu.
 - England/Wales holidays from GOV.UK.
 - No weekend end/due dates.
-- Demand Create/Reach generated as four campaign sprints (~90-day spacing).
-- Demand Capture generated as separate annual campaign.
+- Demand `create_only` generates four create-only sprints with no reach, promotion, reporting, report, engagement-list, or social-promotion work.
+- Demand `create_reach` generates four create/reach sprints (~90-day spacing).
+- Demand `create_reach_capture` generates create/reach sprints plus a separate annual capture campaign.
+- Demand capture campaigns include only the capture module and lead-total deliverable, with the deliverable placed in production.
 
 ## Status and health
 - Global status options:
@@ -20,6 +22,7 @@ Purpose: keep a compact, up-to-date decision log so implementation stays consist
   - Not due, On Track, At Risk, Off Track.
 - Campaign health guardrail:
   - If any stage is Off Track, campaign cannot be On Track.
+- Campaign list health is evaluated from current timeline state at read time and synchronized with workspace health in the UI cache.
 
 ## Ownership and assignment
 - One owner per object.
@@ -40,6 +43,7 @@ Purpose: keep a compact, up-to-date decision log so implementation stays consist
 - Milestones are first-class stage-linked checkpoints with owner, due date, completion date, SLA health, and campaign-start offset.
 - Milestone SLA health is derived from due/completion only (`met`, `missed`, `not_due`); only superadmin can manually override SLA health.
 - Milestones do not move from step dependency changes; they re-anchor when campaign start date changes.
+- Optional promotion/reporting stages are removed with their milestones when integrity repair determines the campaign no longer has that work.
 - Parent status defaults to derived with explicit source metadata (`derived` vs `manual`); descendant changes reset parents back to derived.
 - Step scheduling now includes `earliest_start_date`, `planned_work_date`, and editable `completion_date`.
 - Capacity uses `planned_work_date` as primary scheduling signal; team weekly aggregates are exposed.

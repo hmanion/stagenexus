@@ -39,7 +39,9 @@ The app applies working-day logic, holiday rules, health rollups, capacity warni
 - England and Wales holiday handling via a GOV.UK holiday source
 - readiness gating before campaigns can be generated
 - template version pinning during campaign generation
+- demand module generation modes, including create-only sprints without reach, promotion, or reporting work
 - deliverable workflow states, including `ready_to_publish`
+- live timeline-health rollups for campaign list and workspace views
 - separate manual and system risk channels
 - capacity warnings and override flows
 - SOW change control with dual approval
@@ -108,7 +110,7 @@ PYTHONPATH=. .venv/bin/python scripts/backfill_recent_updates.py
 - `docs/roles-and-governance.md` — ownership, assignments, and approval rights
 - `docs/planning-rules.md` — calendar, health, risk, and capacity rules
 - `docs/api.md` — API areas and example requests
-- `docs/DEPLOYMENT.md` — environments, config, and deploy guidance
+- `docs/deployment.md` — environments, config, and deploy guidance
 - `docs/migrations.md` — migration workflow, policy, and safety rules
 - `docs/roadmap-and-gaps.md` — known limitations and next implementation priorities
 
@@ -121,6 +123,8 @@ PYTHONPATH=. .venv/bin/python scripts/backfill_recent_updates.py
 - campaign owner is the assigned CM
 - one deliverable maps to one publication
 - campaign generation is blocked unless readiness passes
+- demand `create_only` product lines generate create sprints only; promotion and reporting stages are omitted unless reach/reporting work exists
+- demand capture is generated as its own annual campaign with the lead-total deliverable in production only
 - mid-campaign SOW changes only activate after both required approvals are approved
 - if any stage is Off Track, the campaign cannot be On Track
 

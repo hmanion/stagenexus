@@ -23,9 +23,14 @@ Some compatibility aliases may still exist for `/scopes` while the naming transi
 
 ## Campaigns
 
+- `GET /api/campaigns`
 - `GET /api/campaigns/{campaign_id}`
+- `GET /api/campaigns/{campaign_id}/health`
+- `GET /api/campaigns/{campaign_id}/workspace`
 
 Fetch a campaign and its current state.
+
+Campaign list rows include `health`, `campaign_health`, and `health_reason`. These values are assembled from the live timeline-health evaluation for the returned campaigns so list health aligns with the workspace health summary.
 
 ## Deliverables
 
@@ -91,9 +96,15 @@ curl -X POST http://localhost:8000/api/scopes \
     "sow_end_date":"2027-04-01",
     "campaign_objective":"Increase visibility",
     "messaging_positioning":"Thought leadership",
-    "product_lines":[{"product_type":"demand","tier":"silver","options_json":{}}]
+    "product_lines":[{"product_type":"demand","tier":"silver","options_json":{"demand_module_mode":"create_reach_capture"}}]
   }'
 ```
+
+Valid demand module modes include:
+
+- `create_only`
+- `create_reach`
+- `create_reach_capture`
 
 ### Submit scope
 

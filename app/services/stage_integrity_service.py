@@ -69,7 +69,12 @@ class StageIntegrityService:
         steps = self.db.scalars(select(WorkflowStep).where(WorkflowStep.campaign_id == campaign_id)).all()
         linked_by_id = {d.id: d for d in deliverables}
 
-        has_reporting_work = self._campaign_has_reporting_work(deliverables=deliverables, steps=steps, linked_by_id=linked_by_id)
+        has_reporting_work = self._campaign_has_reporting_work(
+            campaign=campaign,
+            deliverables=deliverables,
+            steps=steps,
+            linked_by_id=linked_by_id,
+        )
         has_promotion_work = self._campaign_has_promotion_work(campaign=campaign, deliverables=deliverables)
         required = set(self.BASE_STAGES)
         if has_promotion_work:
@@ -148,7 +153,10 @@ class StageIntegrityService:
         reporting_stage = stage_map.get("reporting")
         if reporting_stage and not has_reporting_work:
             reporting_steps = self.db.scalars(select(WorkflowStep).where(WorkflowStep.stage_id == reporting_stage.id)).all()
+            reporting_milestones = self.db.scalars(select(Milestone).where(Milestone.stage_id == reporting_stage.id)).all()
             if not reporting_steps:
+                for milestone in reporting_milestones:
+                    self.db.delete(milestone)
                 self.db.delete(reporting_stage)
                 result.removed += 1
                 stage_map.pop("reporting", None)
@@ -156,7 +164,10 @@ class StageIntegrityService:
         promotion_stage = stage_map.get("promotion")
         if promotion_stage and not has_promotion_work:
             promotion_steps = self.db.scalars(select(WorkflowStep).where(WorkflowStep.stage_id == promotion_stage.id)).all()
+            promotion_milestones = self.db.scalars(select(Milestone).where(Milestone.stage_id == promotion_stage.id)).all()
             if not promotion_steps:
+                for milestone in promotion_milestones:
+                    self.db.delete(milestone)
                 self.db.delete(promotion_stage)
                 result.removed += 1
                 stage_map.pop("promotion", None)
@@ -210,10 +221,21 @@ class StageIntegrityService:
 
     def _campaign_has_reporting_work(
         self,
+        campaign: Campaign,
         deliverables: list[Deliverable],
         steps: list[WorkflowStep],
         linked_by_id: dict[str, Deliverable],
     ) -> bool:
+        if campaign.campaign_type == CampaignType.DEMAND:
+            module_rows = self.db.scalars(
+                select(ProductModule).where(
+                    ProductModule.campaign_id == campaign.id,
+                    ProductModule.enabled.is_(True),
+                )
+            ).all()
+            if not any(str(m.module_name or "").strip().lower() == "reach" for m in module_rows):
+                return False
+
         if any(d.deliverable_type in REPORTING_DELIVERABLE_TYPES for d in deliverables):
             return True
         for step in steps:
@@ -229,6 +251,15 @@ class StageIntegrityService:
         return False
 
     def _campaign_has_promotion_work(self, campaign: Campaign, deliverables: list[Deliverable]) -> bool:
+        if campaign.campaign_type == CampaignType.DEMAND:
+            module_rows = self.db.scalars(
+                select(ProductModule).where(
+                    ProductModule.campaign_id == campaign.id,
+                    ProductModule.enabled.is_(True),
+                )
+            ).all()
+            return any(str(m.module_name or "").strip().lower() == "reach" for m in module_rows)
+
         promotion_types = {
             DeliverableType.ARTICLE,
             DeliverableType.VIDEO,

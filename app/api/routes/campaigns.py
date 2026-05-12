@@ -575,20 +575,40 @@ def list_campaigns(
     ).all()
     query_count += 1
     fetched_child_records += len(deliverable_rows)
-    work_counts = db.execute(
-        select(WorkflowStep.campaign_id, WorkflowStep.normalized_status, func.count())
-        .where(WorkflowStep.campaign_id.in_(campaign_ids))
-        .group_by(WorkflowStep.campaign_id, WorkflowStep.normalized_status)
-    ).all()
+    deliverables_by_campaign: dict[str, list[Deliverable]] = {}
+    for row in deliverable_rows:
+        deliverables_by_campaign.setdefault(row.campaign_id, []).append(row)
+
+    step_rows = db.scalars(select(WorkflowStep).where(WorkflowStep.campaign_id.in_(campaign_ids))).all()
     query_count += 1
-    fetched_child_records += len(work_counts)
+    fetched_child_records += len(step_rows)
+    steps_by_campaign: dict[str, list[WorkflowStep]] = {}
+    for row in step_rows:
+        steps_by_campaign.setdefault(row.campaign_id, []).append(row)
+
+    stage_rows = db.scalars(select(Stage).where(Stage.campaign_id.in_(campaign_ids))).all()
+    query_count += 1
+    fetched_child_records += len(stage_rows)
+    stages_by_campaign: dict[str, list[Stage]] = {}
+    for row in stage_rows:
+        stages_by_campaign.setdefault(row.campaign_id, []).append(row)
+
+    step_ids = [row.id for row in step_rows]
+    effort_rows = (
+        db.scalars(select(WorkflowStepEffort).where(WorkflowStepEffort.workflow_step_id.in_(step_ids))).all()
+        if step_ids
+        else []
+    )
+    if step_ids:
+        query_count += 1
+        fetched_child_records += len(effort_rows)
+    efforts_by_step_id: dict[str, list[WorkflowStepEffort]] = {}
+    for row in effort_rows:
+        efforts_by_step_id.setdefault(row.workflow_step_id, []).append(row)
 
     d_summary_by_campaign: dict[str, dict[str, int]] = {}
-    step_rows_for_deliverables = db.scalars(
-        select(WorkflowStep).where(WorkflowStep.linked_deliverable_id.in_([d.id for d in deliverable_rows]))
-    ).all() if deliverable_rows else []
     steps_by_deliverable_for_summary: dict[str, list[WorkflowStep]] = {}
-    for step in step_rows_for_deliverables:
+    for step in step_rows:
         linked_id = _step_linked_deliverable(step)
         if linked_id:
             steps_by_deliverable_for_summary.setdefault(linked_id, []).append(step)
@@ -608,22 +628,43 @@ def list_campaigns(
             summary["in_progress"] += 1
 
     w_summary_by_campaign: dict[str, dict[str, int]] = {}
-    for campaign_id, w_status, count in work_counts:
+    for step in step_rows:
+        campaign_id = step.campaign_id
         summary = w_summary_by_campaign.setdefault(campaign_id, {"total": 0, "not_started": 0, "in_progress": 0, "done": 0})
-        summary["total"] += int(count or 0)
+        summary["total"] += 1
+        w_status = step.normalized_status
         raw = str(w_status.value if hasattr(w_status, "value") else w_status or "").lower()
         if raw == "not_started":
-            summary["not_started"] += int(count or 0)
+            summary["not_started"] += 1
         elif raw in {"in_progress", "on_hold", "blocked_client", "blocked_internal", "blocked_dependency"}:
-            summary["in_progress"] += int(count or 0)
+            summary["in_progress"] += 1
         elif raw == "done":
-            summary["done"] += int(count or 0)
+            summary["done"] += 1
+
+    timeline_health = TimelineHealthService(db)
+    health_by_campaign: dict[str, Any] = {}
+    for campaign in campaigns:
+        health_eval, _ = timeline_health.evaluate_campaign(
+            campaign=campaign,
+            deliverables=deliverables_by_campaign.get(campaign.id, []),
+            steps=steps_by_campaign.get(campaign.id, []),
+            efforts_by_step_id=efforts_by_step_id,
+            assignments=assignments_by_campaign.get(campaign.id, []),
+            stages=stages_by_campaign.get(campaign.id, []),
+        )
+        health_by_campaign[campaign.id] = health_eval
 
     items = []
     for campaign in campaigns:
         assignments = sorted(assignments_by_campaign.get(campaign.id, []), key=lambda row: row.role_name.value)
         timeframe = timeframe_by_campaign.get(campaign.id) or (None, None)
-        health_value = str(campaign.health.value if hasattr(campaign.health, "value") else campaign.health or "not_started")
+        health_eval = health_by_campaign.get(campaign.id)
+        health_value = str(
+            getattr(health_eval, "health", None)
+            or (campaign.health.value if hasattr(campaign.health, "value") else campaign.health)
+            or "not_started"
+        )
+        health_reason = getattr(health_eval, "health_reason", None) or campaign.health_reason
         items.append(
             {
                 "id": campaign.display_id,
@@ -643,7 +684,7 @@ def list_campaigns(
                 "module_type": "campaign",
                 "health": health_value,
                 "campaign_health": health_value,
-                "health_reason": campaign.health_reason,
+                "health_reason": health_reason,
                 "health_updated_at": campaign.health_updated_at.isoformat() if campaign.health_updated_at else None,
                 "timeframe_start": campaign.planned_start_date.isoformat() if campaign.planned_start_date else timeframe[0],
                 "timeframe_due": campaign.planned_end_date.isoformat() if campaign.planned_end_date else timeframe[1],

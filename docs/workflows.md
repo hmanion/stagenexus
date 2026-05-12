@@ -34,6 +34,13 @@ Campaign generation is blocked unless readiness passes.
 ### 4. Generate campaigns
 The app generates campaigns from the approved scope, pins the template version, and creates the relevant execution structure.
 
+Demand generation follows the selected module mode:
+
+- `create_only` produces four create sprint campaigns with no reach, promotion, reporting, reports, or engagement-list deliverables
+- `create_reach` produces four create/reach sprint campaigns with promotion and reporting where reach/reporting work exists
+- `create_reach_capture` produces the create/reach sprint campaigns and a separate annual capture campaign
+- capture campaigns contain the capture module and lead-total deliverable only
+
 ### 5. Execute campaigns
 Users work through deliverables and steps, monitor risks and capacity, and manage ongoing operational status.
 
@@ -103,6 +110,8 @@ Status override reset behaviour:
 - manual parent override is explicit and flagged
 - when descendants change, parent status resets back to derived
 
+Campaign list health is evaluated from current timeline state during list assembly, then synchronized into the UI caches when campaign workspaces are opened or lazy-loaded. This keeps list health pills aligned with workspace health summaries instead of relying only on previously stored health values.
+
 ## Milestone workflow
 
 - milestones are stage-linked checkpoints and do not follow step dependency auto-moves
@@ -123,7 +132,7 @@ curl -X POST http://localhost:8000/api/scopes \
     "sow_end_date":"2027-04-01",
     "campaign_objective":"Increase visibility",
     "messaging_positioning":"Thought leadership",
-    "product_lines":[{"product_type":"demand","tier":"silver","options_json":{}}]
+    "product_lines":[{"product_type":"demand","tier":"silver","options_json":{"demand_module_mode":"create_reach_capture"}}]
   }'
 
 # Submit scope

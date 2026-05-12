@@ -67,6 +67,8 @@ class DeliverableWorkflowService:
     ) -> Deliverable:
         current = self._current_status(deliverable)
         if current == to_status:
+            if deliverable.campaign_id:
+                refresh_campaign_health(self.db, deliverable.campaign_id)
             return deliverable
 
         allowed = RULES.get((current, to_status))

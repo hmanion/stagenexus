@@ -1387,6 +1387,8 @@ async function fetchObjectPanelPayload(moduleType, objectId, campaignId = '') {
     if (type === 'campaign') {
       const ws = await api(`/api/campaigns/${encodeURIComponent(id)}/workspace`);
       if (!ws?.campaign) return null;
+      CAMPAIGN_WORKSPACE_CACHE.set(id, ws);
+      syncCampaignHealthFromWorkspace(id, ws, { rerender: true });
       return {
         module_type: 'campaign',
         campaign: {
@@ -1406,6 +1408,8 @@ async function fetchObjectPanelPayload(moduleType, objectId, campaignId = '') {
     if (!cid) return null;
     const ws = await api(`/api/campaigns/${encodeURIComponent(cid)}/workspace`);
     if (!ws) return null;
+    CAMPAIGN_WORKSPACE_CACHE.set(cid, ws);
+    syncCampaignHealthFromWorkspace(cid, ws, { rerender: true });
     if (type === 'stage') {
       const stage = (ws?.stages || []).find(s => String(s?.id || '') === id);
       if (!stage) return null;
@@ -1914,6 +1918,50 @@ async function loadCampaignHealthIndex() {
 
 function healthForCampaign(campaignDisplayId) {
   return campaignHealthByCampaignId[campaignDisplayId] || null;
+}
+
+function campaignHealthFromWorkspace(ws = {}) {
+  return String(
+    ws?.campaign?.health
+    || ws?.campaign?.campaign_health
+    || ws?.health_summary?.overall_status
+    || ''
+  ).toLowerCase();
+}
+
+function syncCampaignHealthFromWorkspace(campaignId, ws = {}, options = {}) {
+  const id = String(campaignId || ws?.campaign?.id || ws?.campaign?.campaign_id || '').trim();
+  const health = campaignHealthFromWorkspace(ws);
+  if (!id || !health) return;
+  campaignHealthByCampaignId[id] = {
+    ...(campaignHealthByCampaignId[id] || {}),
+    campaign_id: id,
+    overall_status: health,
+    health_reason: ws?.campaign?.health_reason || ws?.health_summary?.health_reason || null,
+    worst_signal: ws?.health_summary?.worst_signal || null,
+    next_action: ws?.next_action || null,
+  };
+  const updateRows = (rows = []) => {
+    for (const row of rows || []) {
+      if (!row) continue;
+      if (String(row.module_type || '').toLowerCase() === 'campaign' && String(row.id || '').trim() === id) {
+        row.health = health;
+        row.campaign_health = health;
+        row.health_reason = ws?.campaign?.health_reason || ws?.health_summary?.health_reason || row.health_reason || null;
+      }
+      if (Array.isArray(row.children) && row.children.length) updateRows(row.children);
+    }
+  };
+  updateRows(LIST_ROWS_CACHE.campaigns || []);
+  updateRows(LIST_ROWS_CACHE.scopes || []);
+  if (options.rerender) {
+    if (currentScreen === 'campaigns' && Array.isArray(LIST_ROWS_CACHE.campaigns)) {
+      renderListModule('campaignsBody', LIST_ROWS_CACHE.campaigns);
+    }
+    if (currentScreen === 'scopes' && Array.isArray(LIST_ROWS_CACHE.scopes)) {
+      renderListModule('scopesBody', LIST_ROWS_CACHE.scopes);
+    }
+  }
 }
 
 function labelRole(role) {
@@ -5260,6 +5308,7 @@ function buildCampaignRows(campaignItems = [], workspaceMap = {}) {
   const stageKey = (value) => String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
   return (campaignItems || []).map(campaign => {
     const ws = workspaceMap[campaign.id] || null;
+    const workspaceHealth = campaignHealthFromWorkspace(ws);
     const campaignAssignedUsers = Array.isArray(campaign?.assigned_users) ? campaign.assigned_users : [];
     const campaignOwner = campaignAssignedUsers.find(u => String(u?.role || '').toLowerCase().trim() === 'cm') || null;
     const campaignOwnerName = String(campaignOwner?.name || '').trim();
@@ -5349,7 +5398,9 @@ function buildCampaignRows(campaignItems = [], workspaceMap = {}) {
       id: campaign.id,
       title: campaign.title || campaign.id || 'Campaign',
       status: normalizeStatusValue(campaign.status || 'not_started'),
-      health: String(campaign.health || campaign.campaign_health || 'not_started').toLowerCase(),
+      health: workspaceHealth || String(campaign.health || campaign.campaign_health || 'not_started').toLowerCase(),
+      campaign_health: workspaceHealth || String(campaign.campaign_health || campaign.health || 'not_started').toLowerCase(),
+      health_reason: ws?.campaign?.health_reason || ws?.health_summary?.health_reason || campaign.health_reason || null,
       timeframe_start: campaign?.timeframe_start || ws?.campaign?.timeframe_start || null,
       timeframe_due: campaign?.timeframe_due || ws?.campaign?.timeframe_due || null,
       owner_initials: campaignOwnerInitials,
@@ -5595,6 +5646,7 @@ async function ensureCampaignChildrenLoaded(campaignId, parentScreen = 'campaign
   renderListModule(parentScreen === 'scopes' ? 'scopesBody' : 'campaignsBody', cacheRows);
   const ws = await api(`/api/campaigns/${encodeURIComponent(id)}/workspace`);
   CAMPAIGN_WORKSPACE_CACHE.set(id, ws);
+  syncCampaignHealthFromWorkspace(id, ws);
   const patchRows = buildCampaignRows([{
     id: campaignRow.id,
     title: campaignRow.title,
@@ -5606,6 +5658,12 @@ async function ensureCampaignChildrenLoaded(campaignId, parentScreen = 'campaign
     scope_id: campaignRow.scope_id || '',
     type: '',
   }], { [id]: ws });
+  const workspaceHealth = campaignHealthFromWorkspace(ws);
+  if (workspaceHealth) {
+    campaignRow.health = workspaceHealth;
+    campaignRow.campaign_health = workspaceHealth;
+    campaignRow.health_reason = ws?.campaign?.health_reason || ws?.health_summary?.health_reason || campaignRow.health_reason || null;
+  }
   campaignRow.children = patchRows[0]?.children || [];
   campaignRow.has_lazy_children = false;
   campaignRow.is_loading_children = false;

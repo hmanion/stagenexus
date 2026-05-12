@@ -737,17 +737,18 @@ def _backfill_user_identity_fields(conn) -> None:
 
 def _backfill_stage_hierarchy(conn) -> None:
     # Ensure baseline stage objects exist per campaign.
-    canonical = ("planning", "production", "promotion")
+    canonical = ("planning", "production")
     for stage_name in canonical:
         conn.execute(
             text(
                 """
-                INSERT INTO stages (id, display_id, campaign_id, name, status, health, created_at, updated_at)
+                INSERT INTO stages (id, display_id, campaign_id, name, status, status_source, health, created_at, updated_at)
                 SELECT lower(hex(randomblob(16))),
                        ('STG-' || upper(substr(hex(randomblob(8)), 1, 8))),
                        c.id,
                        :stage_name,
                        'not_started',
+                       'derived',
                        'not_started',
                        CURRENT_TIMESTAMP,
                        CURRENT_TIMESTAMP
@@ -761,17 +762,73 @@ def _backfill_stage_hierarchy(conn) -> None:
             {"stage_name": stage_name},
         )
 
+    # Promotion is conditional: Demand requires Reach; non-Demand campaigns keep
+    # promotion when promotional deliverables or workflow work exist.
+    conn.execute(
+        text(
+            """
+            INSERT INTO stages (id, display_id, campaign_id, name, status, status_source, health, created_at, updated_at)
+            SELECT lower(hex(randomblob(16))),
+                   ('STG-' || upper(substr(hex(randomblob(8)), 1, 8))),
+                   c.id,
+                   'promotion',
+                   'not_started',
+                   'derived',
+                   'not_started',
+                   CURRENT_TIMESTAMP,
+                   CURRENT_TIMESTAMP
+            FROM campaigns c
+            WHERE NOT EXISTS (
+                SELECT 1 FROM stages s
+                WHERE s.campaign_id = c.id AND lower(s.name) = 'promotion'
+            )
+              AND (
+                  EXISTS (
+                    SELECT 1
+                    FROM product_modules pm
+                    WHERE pm.campaign_id = c.id
+                      AND COALESCE(pm.enabled, 1) = 1
+                      AND lower(COALESCE(pm.module_name, '')) = 'reach'
+                  )
+                  OR (
+                    lower(CAST(c.campaign_type AS TEXT)) != 'demand'
+                    AND (
+                      EXISTS (
+                        SELECT 1
+                        FROM deliverables d
+                        WHERE d.campaign_id = c.id
+                          AND lower(CAST(d.deliverable_type AS TEXT)) IN ('article','video','clip','short','display_asset','landing_page','email')
+                      )
+                      OR EXISTS (
+                        SELECT 1
+                        FROM workflow_steps ws
+                        WHERE ws.campaign_id = c.id
+                          AND (
+                            lower(COALESCE(ws.stage_name, '')) = 'promotion'
+                            OR lower(COALESCE(ws.name, '')) LIKE '%publish%'
+                            OR lower(COALESCE(ws.name, '')) LIKE '%social promotion%'
+                            OR lower(COALESCE(ws.name, '')) LIKE '%promot%'
+                          )
+                      )
+                    )
+                  )
+              )
+            """
+        )
+    )
+
     # Reporting stage is conditional: only when a campaign has reporting deliverables
     # or reporting-linked workflow steps.
     conn.execute(
         text(
             """
-            INSERT INTO stages (id, display_id, campaign_id, name, status, health, created_at, updated_at)
+            INSERT INTO stages (id, display_id, campaign_id, name, status, status_source, health, created_at, updated_at)
             SELECT lower(hex(randomblob(16))),
                    ('STG-' || upper(substr(hex(randomblob(8)), 1, 8))),
                    c.id,
                    'reporting',
                    'not_started',
+                   'derived',
                    'not_started',
                    CURRENT_TIMESTAMP,
                    CURRENT_TIMESTAMP
@@ -780,6 +837,16 @@ def _backfill_stage_hierarchy(conn) -> None:
                 SELECT 1 FROM stages s
                 WHERE s.campaign_id = c.id AND lower(s.name) = 'reporting'
             )
+              AND (
+                  lower(CAST(c.campaign_type AS TEXT)) != 'demand'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM product_modules pm
+                    WHERE pm.campaign_id = c.id
+                      AND COALESCE(pm.enabled, 1) = 1
+                      AND lower(COALESCE(pm.module_name, '')) = 'reach'
+                  )
+              )
               AND (
                   EXISTS (
                     SELECT 1
@@ -938,7 +1005,44 @@ def _backfill_stage_hierarchy(conn) -> None:
         )
     )
 
-    # Delete empty reporting stages when campaign has no reporting work.
+    # Delete empty reporting stages when campaign has no reporting work. Milestones
+    # are removed first because they describe the stage being removed.
+    conn.execute(
+        text(
+            """
+            DELETE FROM milestones
+            WHERE stage_id IN (
+                SELECT s.id
+                FROM stages s
+                WHERE lower(s.name) = 'reporting'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM workflow_steps ws
+                    WHERE ws.stage_id = s.id
+                  )
+                  AND (
+                    (
+                      SELECT lower(CAST(c.campaign_type AS TEXT))
+                      FROM campaigns c
+                      WHERE c.id = s.campaign_id
+                    ) = 'demand'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM product_modules pm
+                      WHERE pm.campaign_id = s.campaign_id
+                        AND COALESCE(pm.enabled, 1) = 1
+                        AND lower(COALESCE(pm.module_name, '')) = 'reach'
+                    )
+                    OR NOT EXISTS (
+                      SELECT 1
+                      FROM deliverables d
+                      WHERE d.campaign_id = s.campaign_id
+                        AND lower(CAST(d.deliverable_type AS TEXT)) IN ('report','engagement_list','lead_total')
+                    )
+                  )
+            )
+            """
+        )
+    )
     conn.execute(
         text(
             """
@@ -948,11 +1052,25 @@ def _backfill_stage_hierarchy(conn) -> None:
                 SELECT 1 FROM workflow_steps ws
                 WHERE ws.stage_id = stages.id
               )
-              AND NOT EXISTS (
-                SELECT 1
-                FROM deliverables d
-                WHERE d.campaign_id = stages.campaign_id
-                  AND lower(CAST(d.deliverable_type AS TEXT)) IN ('report','engagement_list','lead_total')
+              AND (
+                (
+                  SELECT lower(CAST(c.campaign_type AS TEXT))
+                  FROM campaigns c
+                  WHERE c.id = stages.campaign_id
+                ) = 'demand'
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM product_modules pm
+                  WHERE pm.campaign_id = stages.campaign_id
+                    AND COALESCE(pm.enabled, 1) = 1
+                    AND lower(COALESCE(pm.module_name, '')) = 'reach'
+                )
+                OR NOT EXISTS (
+                  SELECT 1
+                  FROM deliverables d
+                  WHERE d.campaign_id = stages.campaign_id
+                    AND lower(CAST(d.deliverable_type AS TEXT)) IN ('report','engagement_list','lead_total')
+                )
               )
             """
         )
