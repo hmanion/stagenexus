@@ -13,8 +13,8 @@ This baseline introduces formal Alembic migration discipline while preserving mi
 ## Startup policy
 - Staging and production must run Alembic migrations before application startup.
 - Runtime schema compatibility repair is gated by `RUNTIME_SCHEMA_COMPAT`.
-- `RUNTIME_SCHEMA_COMPAT` defaults on only for `APP_ENV=local`, `dev`, or `development`.
-- Local smoke testing may still use the compatibility path for pre-Alembic databases.
+- `RUNTIME_SCHEMA_COMPAT` defaults off in every environment.
+- Local smoke testing may still opt into the compatibility path for pre-Alembic databases.
 
 ## Transitional compatibility baggage retained intentionally
 - `sprints` table remains for migration-window safety.

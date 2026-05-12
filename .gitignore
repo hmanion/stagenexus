@@ -17,6 +17,7 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+AGENTS.md
 
 # Logs
 *.log

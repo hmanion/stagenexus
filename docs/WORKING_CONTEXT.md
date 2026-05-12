@@ -38,6 +38,7 @@ Purpose: keep a compact, up-to-date decision log so implementation stays consist
 - Removed unsupported fallback step: "Promotion coordination".
 - Per-content publish-step dedupe now uses (name + linked_deliverable_id), so two-article campaigns generate two article publish steps.
 - Legacy generic publish rows are cleaned when per-content rows are reconciled.
+- Alembic is the normal startup/reset schema path; runtime schema repair is explicit local legacy compatibility only.
 
 ## Newly locked rules (implementation)
 - Milestones are first-class stage-linked checkpoints with owner, due date, completion date, SLA health, and campaign-start offset.

@@ -9,7 +9,7 @@ script = ""
 name = "Run"
 icon = "run"
 command = '''
-cd "/Users/jamesmaskell/Desktop/Campaign Operations"
+cd "/Users/jamesmaskell/Desktop/Campaign Operations/Untitled/stagenexus"
 source .venv/bin/activate
 PYTHONPATH=. python scripts/init_db.py
 uvicorn app.main:app --reload --port 8000

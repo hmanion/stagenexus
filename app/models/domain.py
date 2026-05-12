@@ -124,6 +124,21 @@ class DeliverableType(enum.StrEnum):
     DISPLAY_ASSET = "display_asset"
 
 
+class DeliverableStatus(enum.StrEnum):
+    # Deprecated compatibility field. Operational status is derived from workflow
+    # steps and timestamps, but older API/test paths still read/write this value.
+    PLANNED = "planned"
+    IN_PROGRESS = "in_progress"
+    AWAITING_INTERNAL_REVIEW = "awaiting_internal_review"
+    INTERNAL_REVIEW_COMPLETE = "internal_review_complete"
+    AWAITING_CLIENT_REVIEW = "awaiting_client_review"
+    CLIENT_CHANGES_REQUESTED = "client_changes_requested"
+    APPROVED = "approved"
+    READY_TO_PUBLISH = "ready_to_publish"
+    SCHEDULED_OR_PUBLISHED = "scheduled_or_published"
+    COMPLETE = "complete"
+
+
 class WaitingOnType(enum.StrEnum):
     INTERNAL = "internal"
     CLIENT = "client"
@@ -415,6 +430,11 @@ class Deliverable(Base, TimestampMixin):
     deliverable_type: Mapped[DeliverableType] = mapped_column(Enum(DeliverableType), nullable=False)
     # Deprecated compatibility field. Operational progress is derived from linked workflow steps
     # and milestone timestamps; this field must not be treated as source of truth.
+    status: Mapped[DeliverableStatus] = mapped_column(
+        Enum(DeliverableStatus),
+        default=DeliverableStatus.PLANNED,
+        nullable=False,
+    )
     stage: Mapped[DeliverableStage] = mapped_column(
         Enum(DeliverableStage, values_callable=lambda enum_cls: [e.value for e in enum_cls], native_enum=False),
         default=DeliverableStage.PLANNING,

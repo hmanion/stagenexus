@@ -63,6 +63,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_dev_data.py
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -95,6 +97,8 @@ To force a full local reset (drop/recreate + seed), use the local-only helper:
 ```bash
 PYTHONPATH=. python scripts/init_db.py
 ```
+
+The reset helper recreates the schema through Alembic migrations. `RUNTIME_SCHEMA_COMPAT=true` is only a local legacy escape hatch for old pre-Alembic databases.
 
 To backfill existing local data to newer workflow and timeline defaults:
 

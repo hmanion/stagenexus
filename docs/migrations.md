@@ -4,14 +4,15 @@
 
 - Alembic is the source of truth for structural schema changes.
 - `app/db/schema_updates.py` is transitional compatibility debt and must not be extended for normal structural evolution.
-- Staging and production must run migrations before app startup.
-- Startup is expected to fail fast outside local/dev when the DB is not at Alembic head.
+- All environments should run migrations before app startup.
+- Startup is expected to fail fast when `RUNTIME_SCHEMA_COMPAT=false` and the DB is not at Alembic head.
+- `RUNTIME_SCHEMA_COMPAT=true` is an explicit local/dev-only legacy escape hatch for old pre-Alembic databases.
 
 ## Environment variables
 
 - `DATABASE_URL`: single connection source for both app runtime and Alembic.
 - `APP_ENV`: `local`, `dev`, `development`, `staging`, or `production`.
-- `RUNTIME_SCHEMA_COMPAT`: defaults to `true` only in local/dev/development. Set `false` for staging/production.
+- `RUNTIME_SCHEMA_COMPAT`: defaults to `false`. Only set `true` in local/dev/development when temporarily opening an old pre-Alembic database.
 
 ## Local workflow
 
@@ -21,7 +22,7 @@
    - `PYTHONPATH=. python scripts/seed_dev_data.py`
 3. Optional local reset helper (drops and recreates schema):
    - `PYTHONPATH=. python scripts/init_db.py`
-   - This helper is local-only and must not be used in staging/production.
+   - This helper recreates schema through Alembic migrations, is local-only, and must not be used in staging/production.
 
 ## Creating a migration
 
@@ -40,7 +41,7 @@
 - Migration is additive or explicitly safe for rollout.
 - Indexes/constraints match model intent.
 - No hidden schema mutation added to startup/runtime repair code.
-- Runtime repair code is allowed only for local/dev compatibility and data hygiene, such as removing empty optional stages and their milestones when older local data no longer matches module-driven generation rules.
+- Runtime repair code is allowed only behind explicit local/dev compatibility mode and for data hygiene, such as removing empty optional stages and their milestones when older local data no longer matches module-driven generation rules.
 - Upgrade and rollback paths are explicit and understandable.
 
 ## Rollback expectations

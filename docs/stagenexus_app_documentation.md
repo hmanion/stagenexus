@@ -316,6 +316,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_dev_data.py
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -326,10 +328,11 @@ uvicorn app.main:app --reload --port 8000
 ### Database initialisation
 The deployment notes specify:
 ```bash
-PYTHONPATH=. python scripts/init_db.py
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_dev_data.py
 ```
 
-Important note: `scripts/init_db.py` currently **drops and recreates** the local schema for rapid iteration.
+Important note: `scripts/init_db.py` remains a local-only reset helper, but it recreates the schema through Alembic migrations rather than metadata `create_all`.
 
 ### Backfill script
 To bring older local data into line with the latest timeline/workflow rules:
@@ -384,8 +387,8 @@ The project’s deployment notes define three environments.
 
 ### Deployment guidance
 - keep env vars in `.env` locally and a secret manager in higher environments
-- use app-first deployment in compatibility mode
 - run migrations
+- start the app with `RUNTIME_SCHEMA_COMPAT=false`
 - flip traffic
 - roll back app binary if needed
 - prefer backward-compatible migrations for zero-downtime transitions
@@ -415,7 +418,7 @@ According to implementation notes, the following remain:
 - full workflow dependency DAG persistence and recalculation jobs
 - notification and reminder jobs
 - richer dashboard endpoints and frontend UI
-- full Alembic migration history
+- production-like migration smoke checks in CI/staging
 - MySQL-specific indexing strategy
 
 ## 13. Architectural assessment

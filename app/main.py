@@ -30,7 +30,7 @@ def startup() -> None:
         # production should run Alembic migrations before startup instead.
         Base.metadata.create_all(bind=engine)
         ensure_runtime_schema(engine)
-    elif not settings.is_local_env:
+    else:
         assert_database_at_migration_head(engine)
     assert_sqlite_foreign_keys_enabled(engine)
     assert_runtime_integrity(engine)

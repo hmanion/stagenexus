@@ -22,7 +22,8 @@ The following areas were previously called out as gaps and are now materially ad
   - Route-level enforcement and dedicated authz regression tests were added.
 - Migration maturity:
   - Alembic baseline setup and migration policy are now in place.
-  - Migration governance and environment-aware fail-fast checks were added.
+  - Migration governance and Alembic-head startup checks are now the default path.
+  - Runtime schema repair is limited to an explicit local/dev legacy compatibility mode.
 - Frontend/documentation structure:
   - Static UI assets and template partials were split for maintainability.
   - Additional focused docs were added for authorization and migrations.
@@ -58,7 +59,7 @@ Staging/production deployment playbooks, observability, and operational runbooks
 - add scheduled reminder and escalation jobs
 - add richer dashboard and queue views
 - improve audit and reporting visibility
-- extend production-like migration and startup checks in CI/staging
+- extend production-like migration smoke checks in CI/staging
 
 ### Longer term
 

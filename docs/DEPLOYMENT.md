@@ -63,7 +63,7 @@ PYTHONPATH=. python scripts/seed_reference_data.py
 
 Reference data defaults to `app/seeds/stage_steps_hours.csv` and can be overridden with `STAGE_STEPS_CSV_PATH` for local imports.
 
-`scripts/init_db.py` remains available as a local-only reset helper (drop/recreate + seed). It must not be used as a production migration mechanism.
+`scripts/init_db.py` remains available as a local-only reset helper (drop/recreate through Alembic + seed). It must not be used as a production migration mechanism.
 
 ## Backup and restore guidance
 
@@ -85,9 +85,10 @@ Backward-compatible migrations are preferred for low-risk deploys.
 
 Startup policy:
 
-- staging/production should run with `RUNTIME_SCHEMA_COMPAT=false`
-- app startup fails fast if the database is not at Alembic head
+- all normal environments should run with `RUNTIME_SCHEMA_COMPAT=false`
+- app startup fails fast if the database is not at Alembic head when compatibility mode is disabled
 - startup must not mutate schema in staging/production
+- `RUNTIME_SCHEMA_COMPAT=true` is local/dev-only legacy compatibility for old pre-Alembic databases
 - staging/production must not use sqlite `DATABASE_URL`
 - staging/production must provide non-default `SECRET_KEY`
 - staging/production must have stage/step reference data in DB (seeded) or provide a valid `STAGE_STEPS_CSV_PATH`
