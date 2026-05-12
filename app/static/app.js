@@ -1020,6 +1020,50 @@ function listOptionsMenuHtml(row) {
       `;
 }
 
+function listUserId(user) {
+  return String(user?.user_id || user?.id || '').trim();
+}
+
+function listRowUsers(row) {
+  const users = [];
+  const seenIds = new Set();
+  const addUser = (user, isOwner = false) => {
+    const userId = listUserId(user);
+    const initials = String(user?.initials || '').trim();
+    const name = String(user?.name || '').trim();
+    if (!userId && !name && (!initials || initials === '--')) return;
+    if (userId && seenIds.has(userId)) {
+      const existing = users.find(u => u.userId === userId);
+      if (existing && isOwner) existing.isOwner = true;
+      return;
+    }
+    if (userId) seenIds.add(userId);
+    users.push({
+      userId,
+      initials: initials || (name ? initialsFromName(name) : '--'),
+      name,
+      role: user?.role || '',
+      team: user?.team || '',
+      isOwner,
+    });
+  };
+
+  const ownerUserId = String(row?.owner_user_id || row?.next_owner_user_id || '').trim();
+  const ownerName = String(row?.owner_name || '').trim();
+  const ownerInitials = String(row?.owner_initials || '').trim();
+  addUser({
+    id: ownerUserId,
+    initials: ownerInitials || (ownerName ? initialsFromName(ownerName) : ''),
+    name: ownerName,
+  }, true);
+
+  (Array.isArray(row?.participants) ? row.participants : []).forEach(user => {
+    addUser(user, listUserId(user) && listUserId(user) === ownerUserId);
+  });
+
+  return users;
+}
+
 function listRowHtml(row, depth = 0) {
   const moduleType = String(row?.module_type || '').toLowerCase();
   const rowKey = String(row?.row_key || `${moduleType}:${row?.id || row?.title || Math.random()}`);
@@ -1029,10 +1073,7 @@ function listRowHtml(row, depth = 0) {
   const title = String(listObjectValue(row, 'title') || row?.title || row?.name || row?.id || '-');
   const status = normalizeStatusValue(listObjectValue(row, 'status') || row?.status || '');
   const health = String(listObjectValue(row, 'health') || row?.health || '').toLowerCase();
-  const ownerInitials = String(row?.owner_initials || '--').trim() || '--';
-  const ownerName = String(row?.owner_name || '').trim();
-  const ownerUserId = String(row?.owner_user_id || row?.next_owner_user_id || '').trim();
-  const participants = Array.isArray(row?.participants) ? row.participants : [];
+  const listUsers = listRowUsers(row);
   const contextId = String(listObjectValue(row, 'context_id') || row?.context_id || listContextIdForRow(row) || '').trim();
   const popoverPayload = encodePopoverPayload(listRowPopoverPayload(row));
   const left = `
@@ -1047,10 +1088,14 @@ function listRowHtml(row, depth = 0) {
         ${listSlotEnabled(moduleType, 'progress') ? listProgressHtml(row?.progress_statuses || []) : ''}
         ${listSlotEnabled(moduleType, 'status') && status ? listStatusControl(row, moduleType, status) : ''}
         ${listSlotEnabled(moduleType, 'health') && health ? healthChip(health) : ''}
-        ${listSlotEnabled(moduleType, 'owner') ? `<span class='list-owner-pill'>${userPill(ownerInitials, true, ownerName || null, { userId: ownerUserId })}</span>` : ''}
       `;
-  const avatarsHtml = (moduleType !== 'scope') && listSlotEnabled(moduleType, 'avatars')
-    ? `<span class='list-avatar-pills'>${participants.slice(0, 3).map(p => userPill(p?.initials || '--', false, p?.name || null, { userId: p?.id || p?.user_id || '', roleKey: p?.role || '', team: p?.team || '' })).join('')}</span>`
+  const avatarsHtml = listSlotEnabled(moduleType, 'avatars')
+    ? `<span class='list-avatar-pills'>${listUsers.slice(0, 3).map(u => userPill(u.initials || '--', u.isOwner, u.name || null, {
+      userId: u.userId,
+      roleKey: u.role,
+      team: u.team,
+      className: u.isOwner ? 'list-user-pill' : '',
+    })).join('')}</span>`
     : '';
   const contextIdHtml = (listSlotEnabled(moduleType, 'context_id') && contextId)
     ? `<span class='list-context-id'>${escapeHtml(contextId)}</span>`
@@ -2321,7 +2366,13 @@ function userPill(initials, owner = false, fullName = null, options = {}) {
     fullName: label,
   });
   const teamClass = team ? `team-${team}` : 'team-client-services';
-  const cls = owner ? `user-pill ${teamClass} owner` : `user-pill ${teamClass}`;
+  const extraClass = String(options?.className || '').trim();
+  const cls = [
+    'user-pill',
+    teamClass,
+    owner ? 'owner' : '',
+    extraClass,
+  ].filter(Boolean).join(' ');
   const safeLabel = label ? label.replace(/"/g, '&quot;') : '';
   const tooltipAttr = safeLabel ? ` title="${safeLabel}" aria-label="${safeLabel}"` : '';
   return `<span class='${cls}'${tooltipAttr}>${initials || '--'}</span>`;
