@@ -77,6 +77,7 @@ let CONTROL_ROLE_MAP = {
   manage_campaign_assignments: ['head_ops', 'admin'],
   manage_campaign_status: ['cm', 'head_ops', 'admin'],
   manage_campaign_dates: ['cm', 'head_ops', 'admin'],
+  manage_scope_timeframe: ['head_ops', 'head_sales', 'admin'],
   delete_campaign: ['head_ops', 'admin'],
   delete_deliverable: ['head_ops', 'admin'],
   admin_add_user: ['admin'],
@@ -2063,6 +2064,7 @@ function labelControl(controlId) {
     manage_campaign_assignments: 'Manage Campaign Assignments',
     manage_campaign_status: 'Manage Campaign Status',
     manage_campaign_dates: 'Edit Campaign Dates',
+    manage_scope_timeframe: 'Edit Scope Timeframe',
     admin_add_user: 'Add Users',
     admin_edit_user_name: 'Change User Names',
     admin_edit_user_email: 'Change User Emails',
@@ -5204,9 +5206,14 @@ function scopeModuleCard(scope, opts = {}) {
       || canUseControl('ops_approve_latest_scope', currentRole)
       || canUseControl('manage_campaign_assignments', currentRole)
     );
+  const canEditScopeTimeframe = panelMode
+    && editMode
+    && canUseControl('manage_scope_timeframe', currentRole);
   const clientNameInputId = `panelScopeClientName_${scopeObjId || 'scope'}`;
   const contactNameInputId = `panelScopeContactName_${scopeObjId || 'scope'}`;
   const contactEmailInputId = `panelScopeContactEmail_${scopeObjId || 'scope'}`;
+  const timeframeStartInputId = `panelScopeTimeframeStart_${scopeObjId || 'scope'}`;
+  const timeframeEndInputId = `panelScopeTimeframeEnd_${scopeObjId || 'scope'}`;
   const panelDetailsHtml = panelMode
     ? panelDetailsSection([
       {
@@ -5230,7 +5237,12 @@ function scopeModuleCard(scope, opts = {}) {
             ? `<a href='mailto:${escapeHtml(contactEmail)}'>${escapeHtml(contactEmail)}</a>`
             : `<span>-</span>`),
       },
-      { label: 'Timeframe', valueHtml: `<span>${escapeHtml(panelTimeframeText(s.sow_start_date, s.sow_end_date))}</span>` },
+      {
+        label: 'Timeframe',
+        valueHtml: canEditScopeTimeframe
+          ? `<div class='inline-fields'><input id='${timeframeStartInputId}' type='date' value='${escapeHtml(String(s.sow_start_date || ''))}' /><input id='${timeframeEndInputId}' type='date' value='${escapeHtml(String(s.sow_end_date || ''))}' /></div>`
+          : `<span>${escapeHtml(panelTimeframeText(s.sow_start_date, s.sow_end_date))}</span>`,
+      },
       { label: 'Status', valueHtml: statusChip(statusNormalized) },
     ])
     : '';
@@ -8273,7 +8285,8 @@ function objectPanelCanSave(meta = {}) {
   if (type === 'scope') {
     return canUseControl('create_scope', currentRole)
       || canUseControl('ops_approve_latest_scope', currentRole)
-      || canUseControl('manage_campaign_assignments', currentRole);
+      || canUseControl('manage_campaign_assignments', currentRole)
+      || canUseControl('manage_scope_timeframe', currentRole);
   }
   if (type === 'stage') {
     return canUseControl('manage_campaign_assignments', currentRole);
@@ -8334,6 +8347,21 @@ function objectPanelScopeContentPayload(objectId) {
     icp: String(document.getElementById(`panelScopeContent_icp_${safeId}`)?.value || '').trim(),
     campaign_objective: String(document.getElementById(`panelScopeContent_campaign_objective_${safeId}`)?.value || '').trim(),
     messaging_positioning: String(document.getElementById(`panelScopeContent_messaging_positioning_${safeId}`)?.value || '').trim(),
+  };
+}
+
+function canEditScopeDetailsControl() {
+  return canUseControl('create_scope', currentRole)
+    || canUseControl('ops_approve_latest_scope', currentRole)
+    || canUseControl('manage_campaign_assignments', currentRole);
+}
+
+function objectPanelScopeTimeframePayload(objectId) {
+  const safeId = String(objectId || '').trim();
+  return {
+    actor_user_id: currentActorId,
+    sow_start_date: String(document.getElementById(`panelScopeTimeframeStart_${safeId}`)?.value || '').trim() || null,
+    sow_end_date: String(document.getElementById(`panelScopeTimeframeEnd_${safeId}`)?.value || '').trim() || null,
   };
 }
 
@@ -8399,9 +8427,11 @@ async function saveObjectPanelEdits() {
     if (type === 'scope') {
       const scopePayload = objectPanelScopeAmPayload();
       const scopeContentPayload = objectPanelScopeContentPayload(objectId);
+      const scopeTimeframePayload = objectPanelScopeTimeframePayload(objectId);
       const initialAmUserId = String(panelPayload?.scope?.am_user_id || panelPayload?.scope?.am_user?.user_id || '').trim() || null;
-      if (!scopePayload.am_user_id) throw new Error('AM is required');
-      if (scopePayload.am_user_id !== initialAmUserId) {
+      const canEditScopeDetails = canEditScopeDetailsControl();
+      if (canEditScopeDetails && !scopePayload.am_user_id) throw new Error('AM is required');
+      if (scopePayload.am_user_id && scopePayload.am_user_id !== initialAmUserId) {
         await api(`/api/scopes/${encodeURIComponent(objectId)}/am`, {
           method: 'PATCH',
           body: JSON.stringify(scopePayload),
@@ -8421,10 +8451,23 @@ async function saveObjectPanelEdits() {
         || scopeContentPayload.campaign_objective !== initialObjective
         || scopeContentPayload.messaging_positioning !== initialMessaging
       );
-      if (scopeContentChanged) {
+      if (scopeContentChanged && canEditScopeDetails) {
         await api(`/api/scopes/${encodeURIComponent(objectId)}/content`, {
           method: 'PATCH',
           body: JSON.stringify(scopeContentPayload),
+        });
+      }
+      const initialStart = String(panelPayload?.scope?.sow_start_date || '').trim() || null;
+      const initialEnd = String(panelPayload?.scope?.sow_end_date || '').trim() || null;
+      const scopeTimeframeChanged = (
+        scopeTimeframePayload.sow_start_date !== initialStart
+        || scopeTimeframePayload.sow_end_date !== initialEnd
+      );
+      if (scopeTimeframeChanged) {
+        if (!canUseControl('manage_scope_timeframe', currentRole)) throw new Error('You do not have permission to edit scope timeframe');
+        await api(`/api/scopes/${encodeURIComponent(objectId)}/timeframe`, {
+          method: 'PATCH',
+          body: JSON.stringify(scopeTimeframePayload),
         });
       }
     } else if (type === 'campaign' || type === 'stage') {

@@ -240,10 +240,12 @@ def update_scope_timeframe(scope_id: str, payload: ScopeTimeframeUpdateIn, db: S
         actor_user_id=None,
         claimed_user_id=payload.actor_user_id,
     )
-    if not authz.can_update_scope(actor, scope, {RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES}):
-        raise HTTPException(status_code=403, detail="actor cannot modify this scope")
-    if actor.app_role != AppAccessRole.SUPERADMIN and actor.seniority not in {SeniorityLevel.MANAGER, SeniorityLevel.LEADERSHIP}:
-        raise HTTPException(status_code=403, detail="only managers or leadership can update scope timeframe")
+    authz.require_control_permission(
+        actor,
+        "manage_scope_timeframe",
+        fallback_allowed_roles={RoleName.ADMIN, RoleName.HEAD_OPS, RoleName.HEAD_SALES},
+        detail="insufficient permissions to update scope timeframe",
+    )
     if payload.sow_start_date is None and payload.sow_end_date is None:
         raise HTTPException(status_code=400, detail="at least one date is required")
 

@@ -16,12 +16,12 @@ from app.api.core_routes import (
 )
 from app.api.permissions import can_actor_approve_scope
 from app.api.router import router
-from app.api.routes.scopes import generate_campaigns, update_scope_content
+from app.api.routes.scopes import generate_campaigns, update_scope_content, update_scope_timeframe
 from app.api.routes.campaigns import update_campaign_assignments
 from app.models.domain import AppAccessRole, ScopeStatus, RoleName, SeniorityLevel, TeamName
 from app.schemas.admin import AdminUserCreateIn
 from app.schemas.campaigns import CampaignAssignmentsUpdateIn
-from app.schemas.scopes import ScopeContentUpdateIn, SowChangeApproveIn
+from app.schemas.scopes import ScopeContentUpdateIn, ScopeTimeframeUpdateIn, SowChangeApproveIn
 from app.schemas.deliverables import CapacityOverrideDecisionIn
 from app.schemas.risks import EscalationResolveIn
 from app.schemas.workflow import StepManageIn
@@ -159,6 +159,29 @@ class AuthzHardeningTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as exc:
             update_scope_content("SCOPE-1", payload, db=Mock())
         self.assertEqual(exc.exception.status_code, 403)
+
+    @patch("app.api.routes.scopes.AuthzService")
+    @patch("app.api.routes.scopes.get_scope_or_404")
+    def test_scope_timeframe_requires_control_permission(self, get_scope_or_404: Mock, authz_service_cls: Mock) -> None:
+        get_scope_or_404.return_value = SimpleNamespace(
+            id="scope-1",
+            display_id="SCOPE-1",
+            am_user_id="owner-1",
+            sow_start_date=None,
+            sow_end_date=None,
+        )
+        authz_service = authz_service_cls.return_value
+        authz_service.resolve_actor_identity.return_value = (_actor(user_id="user-2"), "user-2")
+        authz_service.require_control_permission.side_effect = HTTPException(
+            status_code=403,
+            detail="insufficient permissions to update scope timeframe",
+        )
+
+        payload = ScopeTimeframeUpdateIn(actor_user_id="user-2", sow_start_date="2026-05-12")
+        with self.assertRaises(HTTPException) as exc:
+            update_scope_timeframe("SCOPE-1", payload, db=Mock())
+        self.assertEqual(exc.exception.status_code, 403)
+        authz_service.require_control_permission.assert_called_once()
 
     @patch("app.api.routes.scopes.AuthzService")
     @patch("app.api.routes.scopes.get_scope_or_404")
