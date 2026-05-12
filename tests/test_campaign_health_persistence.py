@@ -7,7 +7,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from app.api.core_routes import recalculate_campaign_health
-from app.api.routes.campaigns import campaign_workspace, list_campaigns
+from app.api.routes.campaigns import campaign_workspace, list_campaigns, list_scopes
 from app.models.domain import (
     Campaign,
     CampaignAssignment,
@@ -112,6 +112,53 @@ def test_campaign_list_paginates_before_assembly(db_session):
     payload = list_campaigns(limit=1, offset=1, db=db_session)
     assert payload["total"] == 3
     assert len(payload["items"]) == 1
+
+
+def test_campaign_health_filter_counts_before_pagination(db_session):
+    off_track_ids = {"CAMP-003", "CAMP-014", "CAMP-027"}
+    for idx in range(1, 31):
+        _seed_campaign_graph(
+            db_session,
+            campaign_id=f"campaign-{idx:03d}",
+            display_id=f"CAMP-{idx:03d}",
+        )
+
+    def _evaluate_campaign(*_, **kwargs):
+        campaign = kwargs["campaign"]
+        health = "off_track" if campaign.display_id in off_track_ids else "on_track"
+        return SimpleNamespace(health=health, health_reason=f"{health}_seed"), "production"
+
+    with patch("app.api.routes.campaigns.TimelineHealthService.evaluate_campaign") as mocked_eval:
+        mocked_eval.side_effect = _evaluate_campaign
+        payload = list_campaigns(limit=10, offset=0, health="off_track", db=db_session)
+
+    assert payload["total"] == 3
+    assert len(payload["items"]) == 3
+    assert {item["id"] for item in payload["items"]} == off_track_ids
+    assert all(item["health"] == "off_track" for item in payload["items"])
+
+
+def test_scope_health_filter_counts_before_pagination(db_session):
+    off_track_scope_ids = {"SCOPE-003", "SCOPE-014", "SCOPE-027"}
+    for idx in range(1, 31):
+        _seed_campaign_graph(
+            db_session,
+            campaign_id=f"campaign-{idx:03d}",
+            display_id=f"CAMP-{idx:03d}",
+        )
+
+    def _evaluate_scope(scope, *_):
+        health = "off_track" if scope.display_id in off_track_scope_ids else "on_track"
+        return SimpleNamespace(health=health, health_reason=f"{health}_seed", buffer_working_days_remaining=0, is_not_due=False)
+
+    with patch("app.api.routes.campaigns.TimelineHealthService.evaluate_scope") as mocked_eval:
+        mocked_eval.side_effect = _evaluate_scope
+        payload = list_scopes(limit=10, offset=0, health="off_track", db=db_session)
+
+    assert payload["total"] == 3
+    assert len(payload["items"]) == 3
+    assert {item["id"] for item in payload["items"]} == off_track_scope_ids
+    assert all(item["health"] == "off_track" for item in payload["items"])
 
 
 def test_campaign_workspace_still_returns_child_details(db_session):

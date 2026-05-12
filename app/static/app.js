@@ -552,6 +552,8 @@ const CAMPAIGN_LIST_LOADING_KEYS = new Set();
 let renderCampaignsRequestSeq = 0;
 let renderCampaignsAbortController = null;
 let renderCampaignsDebounceTimer = null;
+let currentScopesOffset = 0;
+let currentScopesTotal = 0;
 let currentCampaignsOffset = 0;
 const CAMPAIGNS_PAGE_SIZE = 50;
 let currentCampaignsTotal = 0;
@@ -5486,28 +5488,35 @@ function renderListModule(containerId, rows = []) {
 }
 
 async function renderScopes() {
-  const actorQ = currentActorId ? `?actor_user_id=${encodeURIComponent(currentActorId)}` : '';
-  const data = await api(`/api/scopes${actorQ}`);
+  const params = new URLSearchParams();
+  if (currentActorId) params.set('actor_user_id', currentActorId);
+  params.set('limit', String(CAMPAIGNS_PAGE_SIZE));
+  params.set('offset', String(currentScopesOffset));
   const productFilter = getFilterValue('qProducts') || 'all';
   const scopeHealthFilter = getFilterValue('qScopeHealth') || 'all';
-  const selectedUserIds = selectedUserFilterSet();
-  const items = data.items.filter(d => {
-    if (!scopeMatchesUserFilter(d, selectedUserIds)) return false;
-    const scopeHealth = String(d?.health || 'not_started').toLowerCase();
-    if (scopeHealthFilter !== 'all' && scopeHealth !== scopeHealthFilter) return false;
-    if (productFilter === 'all') return true;
-    const lines = Array.isArray(d?.product_lines) ? d.product_lines : [];
-    const campaigns = Array.isArray(d?.campaigns) ? d.campaigns : [];
-    const matchLine = lines.some(line => String(line?.product_type || '').toLowerCase() === productFilter);
-    const matchCampaign = campaigns.some(c => String(c?.type || '').toLowerCase() === productFilter);
-    return matchLine || matchCampaign;
-  });
+  const selectedUserIds = Array.from(selectedUserFilterSet());
+  if (productFilter !== 'all') params.set('product', productFilter);
+  if (scopeHealthFilter !== 'all') params.set('health', scopeHealthFilter);
+  if (selectedUserIds.length) {
+    params.set('user_ids', selectedUserIds.join(','));
+    params.set('user_logic', selectedUserFilterLogic());
+  }
+  const data = await api(`/api/scopes?${params.toString()}`);
+  currentScopesTotal = Number(data.total || 0);
+  if (currentScopesOffset > 0 && currentScopesOffset >= currentScopesTotal) {
+    currentScopesOffset = Math.max(0, Math.floor(Math.max(0, currentScopesTotal - 1) / CAMPAIGNS_PAGE_SIZE) * CAMPAIGNS_PAGE_SIZE);
+    return renderScopes();
+  }
+  const items = data.items || [];
   const workspaceMap = Object.fromEntries(Array.from(CAMPAIGN_WORKSPACE_CACHE.entries()));
   const rows = buildScopeListRows(items, workspaceMap);
   LIST_ROWS_CACHE.scopes = rows;
   renderListModule('scopesBody', rows);
-  document.getElementById('scopesCount').textContent = `${items.length} shown / ${data.items.length} total`;
-  return data.items;
+  const start = currentScopesTotal ? (currentScopesOffset + 1) : 0;
+  const end = currentScopesOffset + items.length;
+  document.getElementById('scopesCount').textContent = `${start}-${end} shown / ${currentScopesTotal} total`;
+  updateScopePaginationControls();
+  return items;
 }
 
 function teamLabel(value) {
@@ -5945,6 +5954,15 @@ async function renderCampaigns() {
     statusFilter = 'all';
   }
   if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+  const productFilter = getFilterValue('qProducts') || 'all';
+  const campaignHealthFilter = getFilterValue('qCampaignHealth') || 'all';
+  const selectedUserIds = Array.from(selectedUserFilterSet());
+  if (productFilter !== 'all') params.set('product', productFilter);
+  if (campaignHealthFilter !== 'all') params.set('health', campaignHealthFilter);
+  if (selectedUserIds.length) {
+    params.set('user_ids', selectedUserIds.join(','));
+    params.set('user_logic', selectedUserFilterLogic());
+  }
 
   let data;
   try {
@@ -5968,16 +5986,7 @@ async function renderCampaigns() {
       next_action: null,
     };
   }
-  const productFilter = getFilterValue('qProducts') || 'all';
-  const campaignHealthFilter = getFilterValue('qCampaignHealth') || 'all';
-  const selectedUserIds = selectedUserFilterSet();
-  const items = data.items.filter(c => {
-    if (!campaignMatchesUserFilter(c, selectedUserIds)) return false;
-    const healthOk = campaignHealthFilter === 'all' || String(c.health || c.campaign_health || 'not_started').toLowerCase() === campaignHealthFilter;
-    if (!healthOk) return false;
-    if (productFilter === 'all') return true;
-    return String(c.type || '').toLowerCase() === productFilter;
-  });
+  const items = data.items || [];
   const workspaceMap = Object.fromEntries(Array.from(CAMPAIGN_WORKSPACE_CACHE.entries()));
   if (deepTarget) {
     const deepType = String(deepTarget.targetType || '').toLowerCase();
@@ -9836,10 +9845,34 @@ async function refreshAll() {
 
 function scheduleCampaignFilterRefresh() {
   currentCampaignsOffset = 0;
+  currentScopesOffset = 0;
   if (renderCampaignsDebounceTimer) clearTimeout(renderCampaignsDebounceTimer);
   renderCampaignsDebounceTimer = setTimeout(() => {
     refreshAll().catch(err => log('Campaign filter refresh failed', String(err)));
   }, 180);
+}
+
+function updateScopePaginationControls() {
+  const prevBtn = document.getElementById('scopesPrevBtn');
+  const nextBtn = document.getElementById('scopesNextBtn');
+  const label = document.getElementById('scopesPageLabel');
+  const pageNum = Math.floor(currentScopesOffset / CAMPAIGNS_PAGE_SIZE) + 1;
+  const maxPage = Math.max(1, Math.ceil((currentScopesTotal || 0) / CAMPAIGNS_PAGE_SIZE));
+  if (label) label.textContent = `Page ${pageNum} of ${maxPage}`;
+  if (prevBtn) prevBtn.disabled = currentScopesOffset <= 0;
+  if (nextBtn) nextBtn.disabled = (currentScopesOffset + CAMPAIGNS_PAGE_SIZE) >= (currentScopesTotal || 0);
+}
+
+function goScopesPrevPage() {
+  if (currentScopesOffset <= 0) return;
+  currentScopesOffset = Math.max(0, currentScopesOffset - CAMPAIGNS_PAGE_SIZE);
+  refreshAll().catch(err => log('Scope pagination failed', String(err)));
+}
+
+function goScopesNextPage() {
+  if ((currentScopesOffset + CAMPAIGNS_PAGE_SIZE) >= (currentScopesTotal || 0)) return;
+  currentScopesOffset += CAMPAIGNS_PAGE_SIZE;
+  refreshAll().catch(err => log('Scope pagination failed', String(err)));
 }
 
 function updateCampaignPaginationControls() {

@@ -107,6 +107,29 @@ router = APIRouter(prefix="/api", tags=["campaign-ops"])
 logger = logging.getLogger(__name__)
 
 
+def _csv_filter_values(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [
+        value
+        for value in (part.strip().lower() for part in raw.split(","))
+        if value and value != "all"
+    ]
+
+
+def _filter_logic(value: str | None) -> str:
+    return "and" if str(value or "").strip().lower() == "and" else "or"
+
+
+def _matches_selected_values(available: list[str] | set[str], selected: list[str], logic: str = "or") -> bool:
+    if not selected:
+        return True
+    available_set = {str(value or "").strip() for value in available if str(value or "").strip()}
+    if logic == "and":
+        return all(value in available_set for value in selected)
+    return any(value in available_set for value in selected)
+
+
 @router.get("/campaigns/health")
 def list_campaigns_health(
     owner: str | None = None,
@@ -180,6 +203,10 @@ def list_scopes(
     limit: int = 25,
     offset: int = 0,
     q: str | None = None,
+    product: str | None = None,
+    health: str | None = None,
+    user_ids: str | None = None,
+    user_logic: str | None = None,
     actor_user_id: str | None = None,
     db: Session = Depends(get_db),
 ):
@@ -259,14 +286,17 @@ def list_scopes(
         for s in rows
         if s.next_owner_user_id
     }
-    user_ids = sorted(
+    related_user_ids = sorted(
         assignment_user_ids
         .union(am_user_ids)
         .union(staffing_user_ids)
         .union(deliverable_owner_user_ids)
         .union(step_owner_user_ids)
     )
-    users_by_id = {u.id: u for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()} if user_ids else {}
+    users_by_id = {
+        u.id: u
+        for u in db.scalars(select(User).where(User.id.in_(related_user_ids))).all()
+    } if related_user_ids else {}
 
     assignment_user_ids_by_campaign: dict[str, set[str]] = {}
     for campaign_id, rows in assignments_by_campaign.items():
@@ -446,6 +476,49 @@ def list_scopes(
                 ]
             ).lower()
         ]
+    product_filter = str(product or "").strip().lower()
+    if product_filter and product_filter != "all":
+        all_items = [
+            item
+            for item in all_items
+            if any(
+                str(line.get("product_type") or "").lower() == product_filter
+                for line in item.get("product_lines", [])
+            )
+            or any(
+                str(campaign.get("type") or "").lower() == product_filter
+                for campaign in item.get("campaigns", [])
+            )
+        ]
+    health_filter = str(health or "").strip().lower()
+    if health_filter and health_filter != "all":
+        all_items = [
+            item
+            for item in all_items
+            if str(item.get("health") or "not_started").lower() == health_filter
+        ]
+    selected_user_ids = _csv_filter_values(user_ids)
+    if selected_user_ids:
+        logic = _filter_logic(user_logic)
+        all_items = [
+            item
+            for item in all_items
+            if _matches_selected_values(
+                {
+                    item.get("am_user", {}).get("user_id"),
+                    item.get("assigned_cm_user_id"),
+                    item.get("assigned_cc_user_id"),
+                    item.get("assigned_ccs_user_id"),
+                    *[
+                        assigned.get("user_id")
+                        for campaign in item.get("campaigns", [])
+                        for assigned in campaign.get("assigned_users", [])
+                    ],
+                },
+                selected_user_ids,
+                logic,
+            )
+        ]
     total = len(all_items)
     items = all_items[offset : offset + limit]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -463,6 +536,10 @@ def list_campaigns(
     offset: int = 0,
     q: str | None = None,
     status: str | None = None,
+    product: str | None = None,
+    health: str | None = None,
+    user_ids: str | None = None,
+    user_logic: str | None = None,
     owner: str | None = None,
     actor_user_id: str | None = None,
     db: Session = Depends(get_db),
@@ -480,6 +557,13 @@ def list_campaigns(
     base = select(Campaign)
     if status:
         base = base.where(Campaign.status == status.strip().lower())
+    product_filter = str(product or "").strip().lower()
+    if product_filter and product_filter != "all":
+        try:
+            base = base.where(Campaign.campaign_type == CampaignType(product_filter))
+        except ValueError:
+            payload = {"items": [], "total": 0, "limit": limit, "offset": offset}
+            return payload
     if q:
         needle = f"%{q.strip().lower()}%"
         base = base.where(
@@ -512,14 +596,11 @@ def list_campaigns(
                 )
             )
 
-    total = int(db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    candidate_campaigns = db.scalars(base.order_by(Campaign.created_at.desc())).all()
     query_count += 1
-    campaigns = db.scalars(base.order_by(Campaign.created_at.desc()).offset(offset).limit(limit)).all()
-    query_count += 1
-    fetched_parent_records = len(campaigns)
-    campaign_ids = [c.id for c in campaigns]
-    if not campaigns:
-        payload = {"items": [], "total": total, "limit": limit, "offset": offset}
+    campaign_ids = [c.id for c in candidate_campaigns]
+    if not candidate_campaigns:
+        payload = {"items": [], "total": 0, "limit": limit, "offset": offset}
         logger.info(
             "campaign_list_metrics duration_ms=%s sql_queries=%s parent_rows=%s child_rows=%s payload_bytes=%s offset=%s limit=%s",
             round((time.perf_counter() - started_at) * 1000, 2),
@@ -534,7 +615,7 @@ def list_campaigns(
 
     scopes_by_id = {
         d.id: d
-        for d in db.scalars(select(Scope).where(Scope.id.in_([c.scope_id for c in campaigns]))).all()
+        for d in db.scalars(select(Scope).where(Scope.id.in_([c.scope_id for c in candidate_campaigns]))).all()
     }
     query_count += 1
     fetched_child_records += len(scopes_by_id)
@@ -550,12 +631,12 @@ def list_campaigns(
         assignments_by_campaign.setdefault(row.campaign_id, []).append(row)
         owner_ids_by_campaign.setdefault(row.campaign_id, set()).add(row.user_id)
 
-    user_ids = sorted({row.user_id for row in assignment_rows if row.user_id})
+    assignment_user_ids = sorted({row.user_id for row in assignment_rows if row.user_id})
     users_by_id = {
         u.id: u
-        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()
-    } if user_ids else {}
-    if user_ids:
+        for u in db.scalars(select(User).where(User.id.in_(assignment_user_ids))).all()
+    } if assignment_user_ids else {}
+    if assignment_user_ids:
         query_count += 1
         fetched_child_records += len(users_by_id)
 
@@ -643,7 +724,7 @@ def list_campaigns(
 
     timeline_health = TimelineHealthService(db)
     health_by_campaign: dict[str, Any] = {}
-    for campaign in campaigns:
+    for campaign in candidate_campaigns:
         health_eval, _ = timeline_health.evaluate_campaign(
             campaign=campaign,
             deliverables=deliverables_by_campaign.get(campaign.id, []),
@@ -653,6 +734,44 @@ def list_campaigns(
             stages=stages_by_campaign.get(campaign.id, []),
         )
         health_by_campaign[campaign.id] = health_eval
+
+    selected_user_ids = _csv_filter_values(user_ids)
+    selected_user_logic = _filter_logic(user_logic)
+    health_filter = str(health or "").strip().lower()
+    filtered_campaigns = []
+    for campaign in candidate_campaigns:
+        if selected_user_ids and not _matches_selected_values(
+            owner_ids_by_campaign.get(campaign.id, set()),
+            selected_user_ids,
+            selected_user_logic,
+        ):
+            continue
+        health_eval = health_by_campaign.get(campaign.id)
+        health_value = str(
+            getattr(health_eval, "health", None)
+            or (campaign.health.value if hasattr(campaign.health, "value") else campaign.health)
+            or "not_started"
+        ).lower()
+        if health_filter and health_filter != "all" and health_value != health_filter:
+            continue
+        filtered_campaigns.append(campaign)
+
+    total = len(filtered_campaigns)
+    campaigns = filtered_campaigns[offset : offset + limit]
+    fetched_parent_records = len(campaigns)
+    if not campaigns:
+        payload = {"items": [], "total": total, "limit": limit, "offset": offset}
+        logger.info(
+            "campaign_list_metrics duration_ms=%s sql_queries=%s parent_rows=%s child_rows=%s payload_bytes=%s offset=%s limit=%s",
+            round((time.perf_counter() - started_at) * 1000, 2),
+            query_count,
+            fetched_parent_records,
+            fetched_child_records,
+            len(json.dumps(payload, default=str)),
+            offset,
+            limit,
+        )
+        return payload
 
     items = []
     for campaign in campaigns:

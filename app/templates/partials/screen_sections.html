@@ -147,7 +147,12 @@
     <section class='card' id='sectionScopes'>
       <div class='section-head'>
         <h3>Scopes</h3>
-        <span id='scopesCount' class='muted'></span>
+        <div style='display:flex; gap:8px; align-items:center;'>
+          <span id='scopesPageLabel' class='muted'>Page 1 of 1</span>
+          <button id='scopesPrevBtn' type='button' class='ghost' onclick='goScopesPrevPage()'>Prev</button>
+          <button id='scopesNextBtn' type='button' class='ghost' onclick='goScopesNextPage()'>Next</button>
+          <span id='scopesCount' class='muted'></span>
+        </div>
       </div>
       <div id='scopesBody' class='queue-list'></div>
     </section>
